@@ -26,6 +26,8 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 import a_share_daily_screen as screen
 
+REALTIME_CONFIG = screen.RULE_CONFIG["realtime"]
+
 KLINE_CACHE_FILE = SCRIPT_DIR / ".kline_cache.json"
 KLINE_CACHE_TTL = 1800  # 30 min — MAs are slow-moving, don't need tick-level freshness
 
@@ -265,18 +267,31 @@ def _build_market_thermometer(breadth: dict, indices_raw: list) -> dict:
             elif chg < 0:
                 idx_down += 1
 
-    # Risk assessment (initial conservative thresholds — user can adjust)
-    #   danger:  limit_up < 5  OR  adv_dec_ratio < 0.5
+    risk_cfg = REALTIME_CONFIG["market_thermometer"]
+    # Risk assessment thresholds are registered in tools/rule_config.py.
+    #   danger:  limit_up < 5  OR  adv_dec_ratio < 0.5 (with enough samples)
     #   caution: limit_up < 15 OR  adv_dec_ratio < 0.8
     #   strong:  limit_up >= 30 AND adv_dec_ratio >= 1.5
     #   normal:  everything else
-    if limit_up < 5 or (adv_dec_ratio < 0.5 and total_valid > 100):
+    if (
+        limit_up < int(risk_cfg["danger_limit_up_max_exclusive"])
+        or (
+            adv_dec_ratio < float(risk_cfg["danger_adv_dec_ratio_max_exclusive"])
+            and total_valid > int(risk_cfg["danger_total_valid_min_exclusive"])
+        )
+    ):
         risk_level = "danger"
         risk_msg = "市场弱势，涨停稀少且跌多涨少，建议观望"
-    elif limit_up < 15 or adv_dec_ratio < 0.8:
+    elif (
+        limit_up < int(risk_cfg["caution_limit_up_max_exclusive"])
+        or adv_dec_ratio < float(risk_cfg["caution_adv_dec_ratio_max_exclusive"])
+    ):
         risk_level = "caution"
         risk_msg = "市场偏弱，注意控制仓位和止损"
-    elif limit_up >= 30 and adv_dec_ratio >= 1.5:
+    elif (
+        limit_up >= int(risk_cfg["strong_limit_up_min_inclusive"])
+        and adv_dec_ratio >= float(risk_cfg["strong_adv_dec_ratio_min_inclusive"])
+    ):
         risk_level = "strong"
         risk_msg = "市场强势，涨停家数多且涨多跌少，适合操作"
     else:
@@ -332,25 +347,26 @@ def _add_cross_validation(row: dict, e) -> None:
     price = getattr(e, "price", 0) or 0
     chg = getattr(e, "change", 0) or 0
 
+    cfg = REALTIME_CONFIG["cross_validation"]
     warns = []
 
     # 量比高但主力净流出 → 疑似诱多
-    if vol_ratio > 1.2 and main_net < 0:
+    if vol_ratio > float(cfg["volume_ratio_high_min_exclusive"]) and main_net < 0:
         warns.append("疑似诱多：放量但主力净流出")
 
     # 主力净流入但量比低 → 疑似拆单进场
-    if main_net > 0 and vol_ratio < 1.0:
+    if main_net > 0 and vol_ratio < float(cfg["volume_ratio_low_max_exclusive"]):
         warns.append("疑似拆单进场：主力流入但缩量")
 
     # 涨幅大但主力流出 → 警惕出货
-    if chg > 4 and main_net < 0:
+    if chg > float(cfg["large_change_min_exclusive"]) and main_net < 0:
         warns.append("警惕出货：涨幅较大但主力净流出")
 
     # 冲高回落：现价离最高价很远
     high = getattr(e, "high", 0) or 0
     if high > 0 and price > 0:
         pullback_pct = round((high - price) / high * 100, 2)
-        if pullback_pct > 3:
+        if pullback_pct > float(cfg["pullback_max_exclusive"]):
             warns.append(f"冲高回落：从最高价回落{pullback_pct}%")
 
     if warns:
@@ -365,12 +381,13 @@ def _add_cross_validation_from_row(row: dict) -> None:
     main_net = row.get("main_net") or 0
     chg = row.get("chg") or row.get("change") or 0
 
+    cfg = REALTIME_CONFIG["cross_validation"]
     warns = []
-    if vol_ratio > 1.2 and main_net < 0:
+    if vol_ratio > float(cfg["volume_ratio_high_min_exclusive"]) and main_net < 0:
         warns.append("疑似诱多：放量但主力净流出")
-    if main_net > 0 and vol_ratio < 1.0:
+    if main_net > 0 and vol_ratio < float(cfg["volume_ratio_low_max_exclusive"]):
         warns.append("疑似拆单进场：主力流入但缩量")
-    if chg > 4 and main_net < 0:
+    if chg > float(cfg["large_change_min_exclusive"]) and main_net < 0:
         warns.append("警惕出货：涨幅较大但主力净流出")
 
     row["warn"] = "；".join(warns) if warns else ""
@@ -392,9 +409,10 @@ def _add_entry_exit(row: dict, e) -> None:
         return
     stop_loss = min(stop_candidates)
 
-    # Take profit: +3% and +5% from current price
-    tp1 = round(price * 1.03, 2)
-    tp2 = round(price * 1.05, 2)
+    entry_exit_cfg = REALTIME_CONFIG["entry_exit"]
+    # Take profit percentages are registered in tools/rule_config.py.
+    tp1 = round(price * (1 + float(entry_exit_cfg["take_profit_1_pct"]) / 100), 2)
+    tp2 = round(price * (1 + float(entry_exit_cfg["take_profit_2_pct"]) / 100), 2)
 
     # Risk-reward ratio
     risk = price - stop_loss
@@ -424,10 +442,13 @@ def _add_entry_exit_from_row(row: dict) -> None:
 
     row["stop_loss"] = round(stop_loss, 2)
     row["stop_loss_pct"] = round((price - stop_loss) / price * 100, 2)
-    row["take_profit_1"] = round(price * 1.03, 2)
-    row["take_profit_2"] = round(price * 1.05, 2)
+    entry_exit_cfg = REALTIME_CONFIG["entry_exit"]
+    tp1_multiplier = 1 + float(entry_exit_cfg["take_profit_1_pct"]) / 100
+    tp2_multiplier = 1 + float(entry_exit_cfg["take_profit_2_pct"]) / 100
+    row["take_profit_1"] = round(price * tp1_multiplier, 2)
+    row["take_profit_2"] = round(price * tp2_multiplier, 2)
     risk = price - stop_loss
-    reward = price * 1.05 - price
+    reward = price * tp2_multiplier - price
     row["rr_ratio"] = round(reward / risk, 2) if risk > 0 else None
 
 
@@ -963,7 +984,7 @@ def run_screening(
 
     latest_ts = max([r.get("f124") or 0 for r in market] or [0])
     ts = datetime.fromtimestamp(latest_ts, screen.TZ) if latest_ts else datetime.now(screen.TZ)
-    after_1420 = ts.hour > 14 or (ts.hour == 14 and ts.minute >= 20)
+    after_1420 = screen.is_after_tail_risk(ts)
 
     strict_ultra_all = (
         []
@@ -989,7 +1010,7 @@ def run_screening(
                 continue  # 硬黑名单或高位派发降权，不进入低吸候选
             cls, tags, score = screen.low_ultra_class(e, stats, after_1420)
             dom_type, dom_label = screen.evaluate_dominance_type(e, flow_history)
-            if cls != "C" or (e.change >= 2.2 and (e.turnover > 10 or e.change > 5.2 or e.volume_ratio > 6)):
+            if screen.low_ultra_output_eligible(e, cls):
                 low_ultra_rows.append(
                     {
                         **asdict(e),
@@ -1003,7 +1024,7 @@ def run_screening(
                     }
                 )
             cls2, tags2, score2 = screen.low_trend_class(e, stats, after_1420)
-            if cls2 != "C" or (e.change >= 2.5 and (e.change > 6 or e.turnover > 9 or e.ma20_dist > 0.15)):
+            if screen.low_trend_output_eligible(e, cls2):
                 low_trend_rows.append(
                     {
                         **asdict(e),
@@ -1016,8 +1037,8 @@ def run_screening(
                         "super_lead": dom_label,
                     }
                 )
-        low_ultra_rows = sorted(low_ultra_rows, key=lambda r: (class_order[r["class"]], -r["score"], abs(r["change"] - 3.4)))[: max(top, 15)]
-        low_trend_rows = sorted(low_trend_rows, key=lambda r: (class_order[r["class"]], -r["score"], abs(r["change"] - 3.8)))[: max(top, 15)]
+        low_ultra_rows = sorted(low_ultra_rows, key=screen.low_ultra_sort_key)[: max(top, 15)]
+        low_trend_rows = sorted(low_trend_rows, key=screen.low_trend_sort_key)[: max(top, 15)]
 
     watchlist = screen.build_watchlist(enriched, stats)[:top] if "watchlist" in modes else []
 

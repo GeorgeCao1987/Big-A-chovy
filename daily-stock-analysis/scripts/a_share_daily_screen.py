@@ -47,9 +47,11 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-from tools.rule_config import RULE_CONFIG, get_rule_config  # noqa: E402
+from tools.rule_config import RULE_CONFIG, get_rule_config, hhmm_to_minutes  # noqa: E402
 
 RISK_CONFIG = RULE_CONFIG["risk"]
+SCREENING_CONFIG = RULE_CONFIG["screening"]
+EXECUTION_CONFIG = RULE_CONFIG["execution"]
 RISK_STATUSES = RISK_CONFIG["statuses"]
 RISK_CLEAN = RISK_STATUSES["clean"]
 RISK_WATCH = RISK_STATUSES["watch_risk"]
@@ -1368,6 +1370,8 @@ def enrich(row: Dict[str, Any]) -> Optional[Enriched]:
 
 
 def sector_stats(rows: List[Dict[str, Any]], breadth: Optional[Dict[str, Any]] = None) -> Dict[str, Dict[str, Any]]:
+    resonance_cfg = SCREENING_CONFIG["resonance"]
+    main_board_prefixes = tuple(str(prefix) for prefix in resonance_cfg["main_board_prefixes"])
     stats: Dict[str, Dict[str, Any]] = defaultdict(lambda: {"n": 0, "adv": 0, "strong": 0, "sum": 0.0})
     for row in rows:
         if not is_a_share_row(row) or not is_number(row.get("f3")):
@@ -1377,7 +1381,11 @@ def sector_stats(rows: List[Dict[str, Any]], breadth: Optional[Dict[str, Any]] =
         stats[sec]["sum"] += row.get("f3") or 0.0
         if row.get("f3", 0) > 0:
             stats[sec]["adv"] += 1
-        if str(row.get("f12", "")).startswith(("60", "00")) and row.get("f3", 0) >= 2.2 and row.get("f6", 0) >= 300_000_000:
+        if (
+            str(row.get("f12", "")).startswith(main_board_prefixes)
+            and row.get("f3", 0) >= float(resonance_cfg["strong_change_min_inclusive"])
+            and row.get("f6", 0) >= float(resonance_cfg["strong_amount_min_inclusive"])
+        ):
             stats[sec]["strong"] += 1
     quality = breadth or {}
     stats["__meta__"] = {
@@ -1388,11 +1396,12 @@ def sector_stats(rows: List[Dict[str, Any]], breadth: Optional[Dict[str, Any]] =
 
 
 def has_resonance(e: Enriched, stats: Dict[str, Dict[str, Any]]) -> bool:
+    resonance_cfg = SCREENING_CONFIG["resonance"]
     meta = stats.get("__meta__") or {}
     if not meta.get("resonance_usable", True):
         return False
     sec = stats.get(e.industry) or {}
-    if sec.get("strong", 0) < 2:
+    if sec.get("strong", 0) < int(resonance_cfg["strong_candidates_min"]):
         return False
     # Also require sector-wide bullish: either ≥30% of stocks advancing,
     # or the sector's average change is positive.  This prevents a bearish
@@ -1402,24 +1411,39 @@ def has_resonance(e: Enriched, stats: Dict[str, Dict[str, Any]]) -> bool:
     adv = sec.get("adv", 0)
     avg_change = sec.get("sum", 0) / n if n > 0 else 0.0
     adv_ratio = adv / n if n > 0 else 0.0
-    return adv_ratio >= 0.3 or avg_change > 0
+    return (
+        adv_ratio >= float(resonance_cfg["advancing_ratio_min_inclusive"])
+        or avg_change > float(resonance_cfg["average_change_min_exclusive"])
+    )
 
 
 def strict_ultra(e: Enriched) -> bool:
+    cfg = SCREENING_CONFIG["strict_ultra"]
     return (
         is_number(e.volume_ratio)
-        and 5 <= e.price <= 30 and e.float_mv < 20_000_000_000 and e.turnover > 3 and e.volume_ratio > 1.2
-        and e.amount > 300_000_000 and 2 <= e.change <= 5.5 and e.adj_close > e.ma5
-        and e.five_ret <= 0.18 and e.cur_to_high <= 0.03
+        and float(cfg["price_min_inclusive"]) <= e.price <= float(cfg["price_max_inclusive"])
+        and e.float_mv < float(cfg["float_mv_max_exclusive"])
+        and e.turnover > float(cfg["turnover_min_exclusive"])
+        and e.volume_ratio > float(cfg["volume_ratio_min_exclusive"])
+        and e.amount > float(cfg["amount_min_exclusive"])
+        and float(cfg["change_min_inclusive"]) <= e.change <= float(cfg["change_max_inclusive"])
+        and e.adj_close > e.ma5
+        and e.five_ret <= float(cfg["five_ret_max_inclusive"])
+        and e.cur_to_high <= float(cfg["cur_to_high_max_inclusive"])
     )
 
 
 def strict_trend(e: Enriched) -> bool:
+    cfg = SCREENING_CONFIG["strict_trend"]
     return (
-        8 <= e.price <= 45 and 3_000_000_000 <= e.float_mv <= 25_000_000_000
+        float(cfg["price_min_inclusive"]) <= e.price <= float(cfg["price_max_inclusive"])
+        and float(cfg["float_mv_min_inclusive"]) <= e.float_mv <= float(cfg["float_mv_max_inclusive"])
         and e.price > e.ma5 and e.price > e.ma10 and e.price > e.ma20 and e.ma20 > e.prev_ma20
-        and e.dist60 <= 0.10 and 2 <= e.turnover <= 8 and e.vol_vs_avg5 <= 2
-        and 3 <= e.change <= 6.5 and e.five_ret <= 0.20
+        and e.dist60 <= float(cfg["dist60_max_inclusive"])
+        and float(cfg["turnover_min_inclusive"]) <= e.turnover <= float(cfg["turnover_max_inclusive"])
+        and e.vol_vs_avg5 <= float(cfg["vol_vs_avg5_max_inclusive"])
+        and float(cfg["change_min_inclusive"]) <= e.change <= float(cfg["change_max_inclusive"])
+        and e.five_ret <= float(cfg["five_ret_max_inclusive"])
     )
 
 
@@ -1430,27 +1454,33 @@ def trend_confirm_relaxed(e: Enriched) -> bool:
     错误排除哈药(~5.8)等低价强势股。交集状态机用此判定"正式交集"，与
     strict_trend 相比只去掉价格区间、流通市值两项。
     """
+    cfg = SCREENING_CONFIG["strict_trend"]
     return (
         e.price > e.ma5 and e.price > e.ma10 and e.price > e.ma20
         and e.ma20 > e.prev_ma20
-        and 3 <= e.change <= 6.5 and e.five_ret <= 0.20 and e.dist60 <= 0.10
-        and 2 <= e.turnover <= 8 and e.amount > 300_000_000 and e.vol_vs_avg5 <= 2
+        and float(cfg["change_min_inclusive"]) <= e.change <= float(cfg["change_max_inclusive"])
+        and e.five_ret <= float(cfg["five_ret_max_inclusive"])
+        and e.dist60 <= float(cfg["dist60_max_inclusive"])
+        and float(cfg["turnover_min_inclusive"]) <= e.turnover <= float(cfg["turnover_max_inclusive"])
+        and e.amount > float(cfg["amount_min_exclusive"])
+        and e.vol_vs_avg5 <= float(cfg["vol_vs_avg5_max_inclusive"])
     )
 
 
 def _trend_quality_checks(e: Enriched) -> List[tuple]:
     """趋势质量条件清单（不含价格区间/流通市值），供准交集"差一项"判定。"""
+    cfg = SCREENING_CONFIG["strict_trend"]
     return [
         ("价格相对MA5", e.price > e.ma5),
         ("价格相对MA10", e.price > e.ma10),
         ("价格相对MA20", e.price > e.ma20),
         ("MA20斜率", e.ma20 > e.prev_ma20),
-        ("当日涨幅", 3 <= e.change <= 6.5),
-        ("5日涨幅", e.five_ret <= 0.20),
-        ("距60日高点", e.dist60 <= 0.10),
-        ("换手率", 2 <= e.turnover <= 8),
-        ("成交额", e.amount > 300_000_000),
-        ("量能相对5日", e.vol_vs_avg5 <= 2),
+        ("当日涨幅", float(cfg["change_min_inclusive"]) <= e.change <= float(cfg["change_max_inclusive"])),
+        ("5日涨幅", e.five_ret <= float(cfg["five_ret_max_inclusive"])),
+        ("距60日高点", e.dist60 <= float(cfg["dist60_max_inclusive"])),
+        ("换手率", float(cfg["turnover_min_inclusive"]) <= e.turnover <= float(cfg["turnover_max_inclusive"])),
+        ("成交额", e.amount > float(cfg["amount_min_exclusive"])),
+        ("量能相对5日", e.vol_vs_avg5 <= float(cfg["vol_vs_avg5_max_inclusive"])),
     ]
 
 
@@ -1465,51 +1495,64 @@ def trend_observation(e: Enriched) -> bool:
     """
     if strict_trend(e):
         return True
+    cfg = SCREENING_CONFIG["trend_observation"]
     return (
-        8 <= e.price <= 45
-        and 3_000_000_000 <= e.float_mv <= 25_000_000_000
-        and e.amount > 300_000_000
+        float(cfg["price_min_inclusive"]) <= e.price <= float(cfg["price_max_inclusive"])
+        and float(cfg["float_mv_min_inclusive"]) <= e.float_mv <= float(cfg["float_mv_max_inclusive"])
+        and e.amount > float(cfg["amount_min_exclusive"])
         and e.price >= e.ma20
         and e.ma20 > e.prev_ma20
-        and e.price >= e.ma5 * 0.985
-        and e.ma5 >= e.ma10 * 0.985
-        and -1 <= e.change <= 4.5
-        and 1.5 <= e.turnover <= 10
-        and e.vol_vs_avg5 <= 2.5
-        and e.five_ret <= 0.20
-        and e.dist60 <= 0.15
+        and e.price >= e.ma5 * float(cfg["price_ma5_min_multiplier"])
+        and e.ma5 >= e.ma10 * float(cfg["ma5_ma10_min_multiplier"])
+        and float(cfg["change_min_inclusive"]) <= e.change <= float(cfg["change_max_inclusive"])
+        and float(cfg["turnover_min_inclusive"]) <= e.turnover <= float(cfg["turnover_max_inclusive"])
+        and e.vol_vs_avg5 <= float(cfg["vol_vs_avg5_max_inclusive"])
+        and e.five_ret <= float(cfg["five_ret_max_inclusive"])
+        and e.dist60 <= float(cfg["dist60_max_inclusive"])
     )
 
 
 def trend_condition_diagnosis(e: Enriched, stats: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Explain every strict confirmation condition for an ultra candidate."""
+    strict_cfg = SCREENING_CONFIG["strict_trend"]
+    observation_cfg = SCREENING_CONFIG["trend_observation"]
     checks = [
-        ("价格区间", 8 <= e.price <= 45),
-        ("流通市值", 3_000_000_000 <= e.float_mv <= 25_000_000_000),
+        ("价格区间", float(strict_cfg["price_min_inclusive"]) <= e.price <= float(strict_cfg["price_max_inclusive"])),
+        ("流通市值", float(strict_cfg["float_mv_min_inclusive"]) <= e.float_mv <= float(strict_cfg["float_mv_max_inclusive"])),
         ("价格相对MA5", e.price > e.ma5),
         ("价格相对MA10", e.price > e.ma10),
         ("价格相对MA20", e.price > e.ma20),
         ("MA20斜率", e.ma20 > e.prev_ma20),
-        ("当日涨幅", 3 <= e.change <= 6.5),
-        ("5日涨幅", e.five_ret <= 0.20),
-        ("距60日高点", e.dist60 <= 0.10),
-        ("换手率", 2 <= e.turnover <= 8),
-        ("成交额", e.amount > 300_000_000),
-        ("量能相对5日", e.vol_vs_avg5 <= 2),
+        ("当日涨幅", float(strict_cfg["change_min_inclusive"]) <= e.change <= float(strict_cfg["change_max_inclusive"])),
+        ("5日涨幅", e.five_ret <= float(strict_cfg["five_ret_max_inclusive"])),
+        ("距60日高点", e.dist60 <= float(strict_cfg["dist60_max_inclusive"])),
+        ("换手率", float(strict_cfg["turnover_min_inclusive"]) <= e.turnover <= float(strict_cfg["turnover_max_inclusive"])),
+        ("成交额", e.amount > float(strict_cfg["amount_min_exclusive"])),
+        ("量能相对5日", e.vol_vs_avg5 <= float(strict_cfg["vol_vs_avg5_max_inclusive"])),
     ]
     failures = [name for name, passed in checks if not passed]
     observation_checks = [
-        ("价格区间", 8 <= e.price <= 45),
-        ("流通市值", 3_000_000_000 <= e.float_mv <= 25_000_000_000),
-        ("成交额", e.amount > 300_000_000),
+        ("价格区间", float(observation_cfg["price_min_inclusive"]) <= e.price <= float(observation_cfg["price_max_inclusive"])),
+        ("流通市值", float(observation_cfg["float_mv_min_inclusive"]) <= e.float_mv <= float(observation_cfg["float_mv_max_inclusive"])),
+        ("成交额", e.amount > float(observation_cfg["amount_min_exclusive"])),
         ("价格相对MA20", e.price >= e.ma20),
         ("MA20斜率", e.ma20 > e.prev_ma20),
-        ("MA5/MA10未明显转弱", e.price >= e.ma5 * 0.985 and e.ma5 >= e.ma10 * 0.985),
-        ("当日涨幅", -1 <= e.change <= 4.5),
-        ("换手率", 1.5 <= e.turnover <= 10),
-        ("量能相对5日", e.vol_vs_avg5 <= 2.5),
-        ("5日涨幅", e.five_ret <= 0.20),
-        ("距60日高点", e.dist60 <= 0.15),
+        (
+            "MA5/MA10未明显转弱",
+            e.price >= e.ma5 * float(observation_cfg["price_ma5_min_multiplier"])
+            and e.ma5 >= e.ma10 * float(observation_cfg["ma5_ma10_min_multiplier"]),
+        ),
+        (
+            "当日涨幅",
+            float(observation_cfg["change_min_inclusive"]) <= e.change <= float(observation_cfg["change_max_inclusive"]),
+        ),
+        (
+            "换手率",
+            float(observation_cfg["turnover_min_inclusive"]) <= e.turnover <= float(observation_cfg["turnover_max_inclusive"]),
+        ),
+        ("量能相对5日", e.vol_vs_avg5 <= float(observation_cfg["vol_vs_avg5_max_inclusive"])),
+        ("5日涨幅", e.five_ret <= float(observation_cfg["five_ret_max_inclusive"])),
+        ("距60日高点", e.dist60 <= float(observation_cfg["dist60_max_inclusive"])),
     ]
     observation_failures = [name for name, passed in observation_checks if not passed]
     # Strict confirmation is explicitly an upgrade of observation.  Keep that
@@ -1545,72 +1588,170 @@ def trend_condition_diagnosis(e: Enriched, stats: Optional[Dict[str, Dict[str, A
 
 
 def low_ultra_class(e: Enriched, stats: Dict[str, Dict[str, Any]], after_1420: bool) -> Tuple[str, List[str], float]:
+    cfg = SCREENING_CONFIG["low_ultra"]
+    resonance = has_resonance(e, stats)
     tags: List[str] = []
-    if e.high_pull <= 0.3:
+    if e.high_pull <= float(cfg["tag_high_pull_max_inclusive"]):
         tags.append("追高风险")
-    if e.high_pull > 1.5:
+    if e.high_pull > float(cfg["tag_high_pull_risk_max_exclusive"]):
         tags.append("冲高回落风险")
-    if e.change > 4.8 and after_1420:
+    if e.change > float(cfg["tag_tail_change_min_exclusive"]) and after_1420:
         tags.append("尾盘追高风险")
-    if e.turnover > 10 and e.amount > 1_200_000_000 and e.change < 3:
+    if (
+        e.turnover > float(cfg["stagnation_turnover_min_exclusive"])
+        and e.amount > float(cfg["stagnation_amount_min_exclusive"])
+        and e.change < float(cfg["stagnation_change_max_exclusive"])
+    ):
         tags.append("巨量滞涨")
     if e.vwap_state == "均价线下方":
         tags.append("均价线下方")
-    if not has_resonance(e, stats):
+    if not resonance:
         tags.append("板块共振不足")
-    hard_c = e.change > 5.2 or e.turnover > 10 or e.volume_ratio > 6 or "巨量滞涨" in tags or e.vwap_state == "均价线下方"
+    hard_c = (
+        e.change > float(cfg["hard_change_max_exclusive"])
+        or e.turnover > float(cfg["hard_turnover_max_exclusive"])
+        or e.volume_ratio > float(cfg["hard_volume_ratio_max_exclusive"])
+        or "巨量滞涨" in tags
+        or e.vwap_state == "均价线下方"
+    )
     if hard_c:
         cls = "C"
-    elif 2.2 <= e.change <= 4.6 and 2.5 <= e.turnover <= 8 and 1.2 <= e.volume_ratio <= 3.8 and e.amount > 300_000_000 and e.price > e.ma5 and e.high_pull <= 1.5 and e.vwap_state == "均价线上方" and has_resonance(e, stats):
+    elif (
+        float(cfg["a_change_min_inclusive"]) <= e.change <= float(cfg["a_change_max_inclusive"])
+        and float(cfg["a_turnover_min_inclusive"]) <= e.turnover <= float(cfg["a_turnover_max_inclusive"])
+        and float(cfg["a_volume_ratio_min_inclusive"]) <= e.volume_ratio <= float(cfg["a_volume_ratio_max_inclusive"])
+        and e.amount > float(cfg["a_amount_min_exclusive"])
+        and e.price > e.ma5
+        and e.high_pull <= float(cfg["a_high_pull_max_inclusive"])
+        and e.vwap_state == "均价线上方"
+        and resonance
+    ):
         cls = "A"
-    elif 2.2 <= e.change <= 5.2 and e.turnover <= 10 and e.volume_ratio <= 6 and e.price > e.ma5:
+    elif (
+        float(cfg["b_change_min_inclusive"]) <= e.change <= float(cfg["b_change_max_inclusive"])
+        and e.turnover <= float(cfg["b_turnover_max_inclusive"])
+        and e.volume_ratio <= float(cfg["b_volume_ratio_max_inclusive"])
+        and e.price > e.ma5
+    ):
         cls = "B"
     else:
         cls = "C"
     score = 0.0
-    score += max(0, 25 - abs(e.change - 3.4) * 8)
-    score += max(0, 20 - abs(e.turnover - 5.0) * 3)
-    score += 15 if 400_000_000 <= e.amount <= 1_200_000_000 else 8
-    score += 15 if e.vwap_state == "均价线上方" else 0
-    score += 15 if e.high_pull <= 1.5 else 4
-    score += 10 if has_resonance(e, stats) else 0
-    score += 10 if e.price > e.ma5 and e.price / e.ma5 - 1 <= 0.035 else 4
+    score += max(0, float(cfg["score_change_max"]) - abs(e.change - float(cfg["score_change_target"])) * float(cfg["score_change_scale"]))
+    score += max(0, float(cfg["score_turnover_max"]) - abs(e.turnover - float(cfg["score_turnover_target"])) * float(cfg["score_turnover_scale"]))
+    score += float(cfg["score_amount_good_points"]) if float(cfg["score_amount_good_min_inclusive"]) <= e.amount <= float(cfg["score_amount_good_max_inclusive"]) else float(cfg["score_amount_other_points"])
+    score += float(cfg["score_vwap_points"]) if e.vwap_state == "均价线上方" else 0
+    score += float(cfg["score_high_pull_good_points"]) if e.high_pull <= float(cfg["score_high_pull_good_max_inclusive"]) else float(cfg["score_high_pull_other_points"])
+    score += float(cfg["score_resonance_points"]) if resonance else 0
+    score += float(cfg["score_ma5_good_points"]) if e.price > e.ma5 and e.price / e.ma5 - 1 <= float(cfg["score_ma5_distance_max_inclusive"]) else float(cfg["score_ma5_other_points"])
     return cls, tags, round(score, 1)
 
 
 def low_trend_class(e: Enriched, stats: Dict[str, Dict[str, Any]], after_1420: bool) -> Tuple[str, List[str], float]:
+    cfg = SCREENING_CONFIG["low_trend"]
+    resonance = has_resonance(e, stats)
     tags: List[str] = []
-    if e.change > 6:
+    if e.change > float(cfg["tag_hold_change_min_exclusive"]):
         tags.append("持仓区/止盈区")
-    elif e.change > 5.2:
+    elif e.change > float(cfg["tag_observation_change_min_exclusive"]):
         tags.append("趋势观察池")
-    if e.high_pull <= 0.3:
+    if e.high_pull <= float(cfg["tag_high_pull_max_inclusive"]):
         tags.append("追高风险")
-    if after_1420 and e.change > 4.8:
+    if after_1420 and e.change > float(cfg["tag_tail_change_min_exclusive"]):
         tags.append("尾盘追高风险")
     if e.vwap_state == "均价线下方":
         tags.append("放量滞涨风险")
-    if not has_resonance(e, stats):
+    if not resonance:
         tags.append("板块共振不足")
-    base = e.price > e.ma5 and e.price > e.ma10 and e.price > e.ma20 and e.ma5 > e.prev_ma5 and e.ma10 >= e.prev_ma10 and e.amount > 300_000_000
-    hard_c = e.change > 6 or e.turnover > 9 or e.ma20_dist > 0.15 or e.five_ret > 0.18
+    base = (
+        e.price > e.ma5 and e.price > e.ma10 and e.price > e.ma20
+        and e.ma5 > e.prev_ma5 and e.ma10 >= e.prev_ma10
+        and e.amount > float(cfg["base_amount_min_exclusive"])
+    )
+    hard_c = (
+        e.change > float(cfg["hard_change_max_exclusive"])
+        or e.turnover > float(cfg["hard_turnover_max_exclusive"])
+        or e.ma20_dist > float(cfg["hard_ma20_dist_max_exclusive"])
+        or e.five_ret > float(cfg["hard_five_ret_max_inclusive"])
+    )
     if hard_c:
         cls = "C"
-    elif base and 2.5 <= e.change <= 5.2 and 2 <= e.turnover <= 7.5 and e.high_pull > 0.3 and "尾盘追高风险" not in tags and has_resonance(e, stats):
+    elif (
+        base
+        and float(cfg["a_change_min_inclusive"]) <= e.change <= float(cfg["a_change_max_inclusive"])
+        and float(cfg["a_turnover_min_inclusive"]) <= e.turnover <= float(cfg["a_turnover_max_inclusive"])
+        and e.high_pull > float(cfg["a_high_pull_min_exclusive"])
+        and "尾盘追高风险" not in tags
+        and resonance
+    ):
         cls = "A"
-    elif base and 2.5 <= e.change <= 6 and e.turnover <= 9:
+    elif (
+        base
+        and float(cfg["b_change_min_inclusive"]) <= e.change <= float(cfg["b_change_max_inclusive"])
+        and e.turnover <= float(cfg["b_turnover_max_inclusive"])
+    ):
         cls = "B"
     else:
         cls = "C"
     score = 0.0
-    score += max(0, 25 - abs(e.change - 3.8) * 7)
-    score += 20 if 2 <= e.turnover <= 7.5 else 6
-    score += 15 if 400_000_000 <= e.amount <= 1_500_000_000 else 8
-    score += 15 if e.ma5 > e.prev_ma5 and e.ma10 >= e.prev_ma10 else 3
-    score += max(0, 15 - e.ma20_dist * 100)
-    score += 10 if has_resonance(e, stats) else 0
-    score += 10 if e.high_pull <= 1.5 else 4
+    score += max(0, float(cfg["score_change_max"]) - abs(e.change - float(cfg["score_change_target"])) * float(cfg["score_change_scale"]))
+    score += float(cfg["score_turnover_good_points"]) if float(cfg["score_turnover_min_inclusive"]) <= e.turnover <= float(cfg["score_turnover_max_inclusive"]) else float(cfg["score_turnover_other_points"])
+    score += float(cfg["score_amount_good_points"]) if float(cfg["score_amount_good_min_inclusive"]) <= e.amount <= float(cfg["score_amount_good_max_inclusive"]) else float(cfg["score_amount_other_points"])
+    score += float(cfg["score_slope_good_points"]) if e.ma5 > e.prev_ma5 and e.ma10 >= e.prev_ma10 else float(cfg["score_slope_other_points"])
+    score += max(0, float(cfg["score_ma20_max_points"]) - e.ma20_dist * float(cfg["score_ma20_scale"]))
+    score += float(cfg["score_resonance_points"]) if resonance else 0
+    score += float(cfg["score_high_pull_good_points"]) if e.high_pull <= float(cfg["score_high_pull_good_max_inclusive"]) else float(cfg["score_high_pull_other_points"])
     return cls, tags, round(score, 1)
+
+
+def low_ultra_output_eligible(e: Enriched, cls: str) -> bool:
+    """低吸超短报表保留条件，供 CLI 与实时引擎共用。"""
+    cfg = SCREENING_CONFIG["low_ultra"]
+    return cls != "C" or (
+        e.change >= float(cfg["output_change_min_inclusive"])
+        and (
+            e.turnover > float(cfg["hard_turnover_max_exclusive"])
+            or e.change > float(cfg["hard_change_max_exclusive"])
+            or e.volume_ratio > float(cfg["hard_volume_ratio_max_exclusive"])
+        )
+    )
+
+
+def low_trend_output_eligible(e: Enriched, cls: str) -> bool:
+    """低吸趋势报表保留条件，供 CLI 与实时引擎共用。"""
+    cfg = SCREENING_CONFIG["low_trend"]
+    return cls != "C" or (
+        e.change >= float(cfg["output_change_min_inclusive"])
+        and (
+            e.change > float(cfg["hard_change_max_exclusive"])
+            or e.turnover > float(cfg["hard_turnover_max_exclusive"])
+            or e.ma20_dist > float(cfg["hard_ma20_dist_max_exclusive"])
+        )
+    )
+
+
+def low_ultra_sort_key(row: Dict[str, Any]) -> Tuple[Any, ...]:
+    cfg = SCREENING_CONFIG["low_ultra"]
+    return (
+        {"A": 0, "B": 1, "C": 2}.get(row["class"], 99),
+        -row["score"],
+        abs(row["change"] - float(cfg["score_change_target"])),
+    )
+
+
+def low_trend_sort_key(row: Dict[str, Any]) -> Tuple[Any, ...]:
+    cfg = SCREENING_CONFIG["low_trend"]
+    return (
+        {"A": 0, "B": 1, "C": 2}.get(row["class"], 99),
+        -row["score"],
+        abs(row["change"] - float(cfg["score_change_target"])),
+    )
+
+
+def is_after_tail_risk(timestamp: datetime) -> bool:
+    """判断是否进入执行配置登记的尾盘风控时段。"""
+    start = EXECUTION_CONFIG["time_windows"]["tail_risk"]["start"]
+    return timestamp.hour * 60 + timestamp.minute >= hhmm_to_minutes(start)
 
 
 def _should_exclude_from_low_absorb(
@@ -1654,7 +1795,8 @@ def _qualifies_low_open_wash(e: "Enriched", flow_history) -> bool:
     if not (is_number(e.open) and is_number(e.prev_close) and is_number(e.price)
             and e.main_net is not None and e.main_net == e.main_net):
         return False
-    if not (e.open <= e.prev_close * 0.98):
+    wash_cfg = SCREENING_CONFIG["low_open_wash"]
+    if not (e.open <= e.prev_close * float(wash_cfg["open_max_prev_close_multiplier"])):
         return False
     if not (e.price > e.open):
         return False
@@ -1692,7 +1834,8 @@ def market_summary(
     a_share_rows = [r for r in rows if is_a_share_row(r)]
     valid_change = [r for r in a_share_rows if is_number(r.get("f3"))]
     invalid_change = len(a_share_rows) - len(valid_change)
-    main = [r for r in valid_change if str(r.get("f12", "")).startswith(("60", "00"))]
+    main_board_prefixes = tuple(str(prefix) for prefix in SCREENING_CONFIG["resonance"]["main_board_prefixes"])
+    main = [r for r in valid_change if str(r.get("f12", "")).startswith(main_board_prefixes)]
     adv = sum(1 for r in valid_change if r["f3"] > 0)
     dec = sum(1 for r in valid_change if r["f3"] < 0)
     flat = sum(1 for r in valid_change if r["f3"] == 0)
@@ -1712,8 +1855,14 @@ def market_summary(
         )
     if not provider_complete and not fallback_source:
         quality_reasons.append(f"服务端总数{provider_total}，本次仅取得{len(rows)}条")
-    if a_share_rows and invalid_change / len(a_share_rows) > 0.10:
-        quality_reasons.append(f"A股涨跌幅缺失{invalid_change}条，超过10%")
+    snapshot_cfg = SCREENING_CONFIG["market_snapshot"]
+    if (
+        a_share_rows
+        and invalid_change / len(a_share_rows) > float(snapshot_cfg["invalid_change_ratio_max_exclusive"])
+    ):
+        quality_reasons.append(
+            f"A股涨跌幅缺失{invalid_change}条，超过{float(snapshot_cfg['invalid_change_ratio_max_exclusive'])*100:g}%"
+        )
     if valid_change and dec == 0:
         quality_reasons.append("下跌数为0，疑似仅取得涨幅排序的部分样本")
     degraded = bool(quality_reasons)
@@ -1727,8 +1876,8 @@ def market_summary(
         "valid_change": len(valid_change),
         "invalid_change": invalid_change,
         "breadth": adv / len(valid_change) if valid_change else None,
-        "main_limit_up": sum(1 for r in main if r["f3"] >= 9.8),
-        "main_limit_down": sum(1 for r in main if r["f3"] <= -9.8),
+        "main_limit_up": sum(1 for r in main if r["f3"] >= float(snapshot_cfg["limit_up_change_min_inclusive"])),
+        "main_limit_down": sum(1 for r in main if r["f3"] <= float(snapshot_cfg["limit_down_change_max_inclusive"])),
         "degraded": degraded,
         "resonance_usable": not degraded,
         "quality_reason": "；".join(quality_reasons),
@@ -1736,6 +1885,9 @@ def market_summary(
 
 
 def filter_prefetch(rows: List[Dict[str, Any]], modes: List[str]) -> List[Dict[str, Any]]:
+    ultra_cfg = SCREENING_CONFIG["strict_ultra"]
+    trend_cfg = SCREENING_CONFIG["strict_trend"]
+    observation_cfg = SCREENING_CONFIG["trend_observation"]
     valid = [r for r in rows if valid_main_board(r)]
     has_all = "all" in modes
     has_strict = has_all or "strict" in modes
@@ -1748,23 +1900,36 @@ def filter_prefetch(rows: List[Dict[str, Any]], modes: List[str]) -> List[Dict[s
         chg = r["f3"]
         if has_strict:
             ultra_prefilter = (
-                5 <= price <= 30 and r["f21"] < 20_000_000_000 and r["f8"] > 3
-                and is_number(r.get("f10")) and r["f10"] > 1.2
-                and amount > 300_000_000 and 2 <= chg <= 5.5
+                float(ultra_cfg["price_min_inclusive"]) <= price <= float(ultra_cfg["price_max_inclusive"])
+                and r["f21"] < float(ultra_cfg["float_mv_max_exclusive"])
+                and r["f8"] > float(ultra_cfg["turnover_min_exclusive"])
+                and is_number(r.get("f10")) and r["f10"] > float(ultra_cfg["volume_ratio_min_exclusive"])
+                and amount > float(ultra_cfg["amount_min_exclusive"])
+                and float(ultra_cfg["change_min_inclusive"]) <= chg <= float(ultra_cfg["change_max_inclusive"])
             )
             confirmation_prefilter = (
-                8 <= price <= 45 and 3_000_000_000 <= r["f21"] <= 25_000_000_000
-                and 2 <= r["f8"] <= 8 and 3 <= chg <= 6.5
+                float(trend_cfg["price_min_inclusive"]) <= price <= float(trend_cfg["price_max_inclusive"])
+                and float(trend_cfg["float_mv_min_inclusive"]) <= r["f21"] <= float(trend_cfg["float_mv_max_inclusive"])
+                and float(trend_cfg["turnover_min_inclusive"]) <= r["f8"] <= float(trend_cfg["turnover_max_inclusive"])
+                and float(trend_cfg["change_min_inclusive"]) <= chg <= float(trend_cfg["change_max_inclusive"])
             )
             observation_prefilter = (
-                8 <= price <= 45 and 3_000_000_000 <= r["f21"] <= 25_000_000_000
-                and amount > 300_000_000 and 1.5 <= r["f8"] <= 10 and -1 <= chg <= 4.5
+                float(observation_cfg["price_min_inclusive"]) <= price <= float(observation_cfg["price_max_inclusive"])
+                and float(observation_cfg["float_mv_min_inclusive"]) <= r["f21"] <= float(observation_cfg["float_mv_max_inclusive"])
+                and amount > float(observation_cfg["amount_min_exclusive"])
+                and float(observation_cfg["turnover_min_inclusive"]) <= r["f8"] <= float(observation_cfg["turnover_max_inclusive"])
+                and float(observation_cfg["change_min_inclusive"]) <= chg <= float(observation_cfg["change_max_inclusive"])
             )
             if ultra_prefilter or confirmation_prefilter or observation_prefilter:
                 selected.append(r)
                 continue
         if has_low or has_wl:
-            if 5 <= price <= 45 and amount > 300_000_000 and 1.0 <= chg <= 6.5:
+            if (
+                float(ultra_cfg["price_min_inclusive"]) <= price <= float(SCREENING_CONFIG["watchlist"]["price_max_inclusive"])
+                and amount > float(ultra_cfg["amount_min_exclusive"])
+                and float(SCREENING_CONFIG["low_absorb"]["prefetch_change_min_inclusive"]) <= chg
+                <= float(SCREENING_CONFIG["low_absorb"]["prefetch_change_max_inclusive"])
+            ):
                 selected.append(r)
     dedup = {r["f12"]: r for r in selected}
     return list(dedup.values())
@@ -1814,7 +1979,8 @@ def save_flow_history(enriched: List[Enriched], history: Dict[str, List[Dict[str
     """Save current query's capital flow data, appending to history. Keep last 30 minutes."""
     import time as _t
     now = _t.time()
-    cutoff = now - 1800  # 30 minutes
+    flow_cfg = SCREENING_CONFIG["flow"]
+    cutoff = now - float(flow_cfg["history_retention_seconds"])
     entry = {"ts": now}
     for e in enriched:
         if e.code not in history:
@@ -1848,6 +2014,9 @@ def apply_flow_increments(enriched: List[Enriched], history: Dict[str, List[Dict
     """
     import time as _t
     now = _t.time()
+    flow_cfg = SCREENING_CONFIG["flow"]
+    baseline_5m_cfg = flow_cfg["baseline_5m"]
+    baseline_15m_cfg = flow_cfg["baseline_15m"]
     for e in enriched:
         entries = history.get(e.code, [])
         if not entries:
@@ -1860,8 +2029,8 @@ def apply_flow_increments(enriched: List[Enriched], history: Dict[str, List[Dict
         best_diff_5m = 999999
         for h in entries:
             age = now - h.get("ts", 0)
-            if 180 <= age <= 420:  # 3–7 min
-                diff = abs(age - 300)
+            if float(baseline_5m_cfg["min_age_seconds"]) <= age <= float(baseline_5m_cfg["max_age_seconds"]):
+                diff = abs(age - float(baseline_5m_cfg["target_age_seconds"]))
                 if diff < best_diff_5m:
                     best_diff_5m = diff
                     baseline_5m = h
@@ -1871,8 +2040,8 @@ def apply_flow_increments(enriched: List[Enriched], history: Dict[str, List[Dict
         best_diff_15m = 999999
         for h in entries:
             age = now - h.get("ts", 0)
-            if 600 <= age <= 1200:  # 10–20 min
-                diff = abs(age - 900)
+            if float(baseline_15m_cfg["min_age_seconds"]) <= age <= float(baseline_15m_cfg["max_age_seconds"]):
+                diff = abs(age - float(baseline_15m_cfg["target_age_seconds"]))
                 if diff < best_diff_15m:
                     best_diff_15m = diff
                     baseline_15m = h
@@ -1899,8 +2068,8 @@ def apply_flow_increments(enriched: List[Enriched], history: Dict[str, List[Dict
         best_d = 999999
         for h in sorted_entries:
             age = now - h.get("ts", 0)
-            if 180 <= age <= 420:
-                d = abs(age - 300)
+            if float(baseline_5m_cfg["min_age_seconds"]) <= age <= float(baseline_5m_cfg["max_age_seconds"]):
+                d = abs(age - float(baseline_5m_cfg["target_age_seconds"]))
                 if d < best_d:
                     best_d = d
                     base_vol = h
@@ -1918,14 +2087,13 @@ def apply_flow_increments(enriched: List[Enriched], history: Dict[str, List[Dict
             if d > 0:
                 deltas.append(d)
         if deltas and recent_amt_delta > 0:
-            N = min(5, len(deltas))
+            N = min(int(flow_cfg["history_delta_lookback"]), len(deltas))
             past = deltas[-N:]
             past_avg = sum(past) / len(past)
             e.vol_ratio_vs_hist = (recent_amt_delta / past_avg) if past_avg > 0 else float("nan")
         else:
             e.vol_ratio_vs_hist = float("nan")
 
-        flow_cfg = RULE_CONFIG["screening"]["flow"]
         e.vol_surge = (
             not (isinstance(e.vol_ratio_vs_hist, float) and math.isnan(e.vol_ratio_vs_hist))
             and e.vol_ratio_vs_hist >= float(flow_cfg["volume_surge_ratio_min"])
@@ -1958,11 +2126,14 @@ def classify_flow(e: Enriched, stats: Dict[str, Dict[str, Any]], has_snapshot: b
         return "数据不足"
 
     # Check conditions
+    flow_cfg = SCREENING_CONFIG["flow"]
+    classification_cfg = flow_cfg["classification"]
+    alignment_ratio = float(classification_cfg["alignment_ratio_max_exclusive"])
     main_positive = e.main_net > 0
     super_big_aligned = (e.super_net > 0 and e.big_net > 0) or (
-        e.super_net > 0 and abs(e.big_net) < abs(e.super_net) * 0.3
-    ) or (e.big_net > 0 and abs(e.super_net) < abs(e.big_net) * 0.3)
-    price_rising = e.change > 0
+        e.super_net > 0 and abs(e.big_net) < abs(e.super_net) * alignment_ratio
+    ) or (e.big_net > 0 and abs(e.super_net) < abs(e.big_net) * alignment_ratio)
+    price_rising = e.change > float(classification_cfg["price_rising_min_exclusive"])
     above_vwap = e.price_above_vwap
     has_5m = not (isinstance(e.flow_5m_inc, float) and math.isnan(e.flow_5m_inc))
     flow_increasing = has_5m and e.flow_5m_inc > 0
@@ -1970,7 +2141,7 @@ def classify_flow(e: Enriched, stats: Dict[str, Dict[str, Any]], has_snapshot: b
     # 疑似派发: small orders in, large orders out, stock at high position
     small_in = e.small_net > 0
     big_out = e.super_net < 0 and e.big_net < 0
-    at_high = e.dist60 < 0.05 if is_number(e.dist60) else False
+    at_high = e.dist60 < float(classification_cfg["at_high_dist60_max_exclusive"]) if is_number(e.dist60) else False
 
     if small_in and big_out and at_high:
         return "疑似派发"
@@ -1978,12 +2149,15 @@ def classify_flow(e: Enriched, stats: Dict[str, Dict[str, Any]], has_snapshot: b
     # 价量背离: capital/volume increasing but price not rising or below VWAP
     if main_positive and (not price_rising or not above_vwap) and flow_increasing:
         return "价量背离"
-    if e.main_pct > 3 and e.change < -1:
+    if (
+        e.main_pct > float(classification_cfg["divergence_main_pct_min_exclusive"])
+        and e.change < float(classification_cfg["divergence_change_max_exclusive"])
+    ):
         return "价量背离"
 
     # 有效流入: main force positive + sustained, super+big aligned, price up, above VWAP
     if main_positive and super_big_aligned and price_rising and above_vwap:
-        if flow_increasing or e.main_pct > 5:
+        if flow_increasing or e.main_pct > float(classification_cfg["effective_main_pct_min_exclusive"]):
             return "有效流入"
 
     # 疑似流入: main force positive but some conditions not met
@@ -2096,7 +2270,8 @@ def rank_capital_candidates(
     - 赋予 sector_boost 与 B类优选资格 (b_preferred)
     - 板块内归一化排序兼顾 5分钟净额 与 5分钟净额/成交额
     """
-    sector_cfg = RULE_CONFIG["screening"]["sector_boost"]
+    sector_cfg = SCREENING_CONFIG["sector_boost"]
+    score_cfg = SCREENING_CONFIG["capital_rank"]
     # 1. 扫描板块锚点与共振
     sector_anchors: Dict[str, List[Enriched]] = {}
     sector_resonance_counts: Dict[str, int] = {}
@@ -2127,20 +2302,39 @@ def rank_capital_candidates(
 
         # 0-100 score: current relative flow 55, persistence 20,
         # price confirmation 15, sector confirmation 10.
-        main_points = max(0.0, min(35.0, e.main_pct / 8.0 * 35.0))
-        super_points = max(0.0, min(20.0, e.super_pct / 5.0 * 20.0))
+        main_points = max(
+            0.0,
+            min(
+                float(score_cfg["score_main_max_points"]),
+                e.main_pct / float(score_cfg["score_main_pct_scale"]) * float(score_cfg["score_main_max_points"]),
+            ),
+        )
+        super_points = max(
+            0.0,
+            min(
+                float(score_cfg["score_super_max_points"]),
+                e.super_pct / float(score_cfg["score_super_pct_scale"]) * float(score_cfg["score_super_max_points"]),
+            ),
+        )
         persistence_points = 0.0
         if has_5m:
             increment_pct = e.flow_5m_inc / e.amount * 100 if e.amount > 0 else 0.0
-            persistence_points = max(0.0, min(20.0, increment_pct / 1.5 * 20.0))
+            persistence_points = max(
+                0.0,
+                min(
+                    float(score_cfg["score_persistence_max_points"]),
+                    increment_pct / float(score_cfg["score_persistence_pct_scale"])
+                    * float(score_cfg["score_persistence_max_points"]),
+                ),
+            )
 
-        if e.price_above_vwap and e.change > 0:
-            price_points = 15.0
+        if e.price_above_vwap and e.change > float(score_cfg["score_price_change_min_exclusive"]):
+            price_points = float(score_cfg["score_price_positive_points"])
         elif e.price_above_vwap:
-            price_points = 7.0
+            price_points = float(score_cfg["score_price_nonpositive_points"])
         else:
             price_points = 0.0
-        sector_points = 10.0 if resonance else 0.0
+        sector_points = float(score_cfg["score_resonance_points"]) if resonance else 0.0
 
         # 板块协同加分器 (sector_boost)
         sector_boost = 0.0
@@ -2192,21 +2386,25 @@ def rank_capital_candidates(
             reasons.append(f"主线板块协同(+{int(sector_boost)}分,20亿锚点带动)")
 
         if e.flow_status == "疑似派发":
-            score -= 35.0
+            score -= float(score_cfg["penalty_distribution"])
             reasons.append("疑似派发")
         elif e.flow_status == "价量背离":
-            score -= 20.0
+            score -= float(score_cfg["penalty_divergence"])
             reasons.append("价量背离")
         if e.main_net < 0:
-            score -= 20.0
-        if e.high_pull > 1.5:
-            score -= min(15.0, (e.high_pull - 1.5) * 5.0)
+            score -= float(score_cfg["penalty_main_out"])
+        if e.high_pull > float(score_cfg["penalty_high_pull_free_max_inclusive"]):
+            score -= min(
+                float(score_cfg["penalty_high_pull_max_points"]),
+                (e.high_pull - float(score_cfg["penalty_high_pull_free_max_inclusive"]))
+                * float(score_cfg["penalty_high_pull_scale"]),
+            )
             reasons.append("高位回落偏大")
 
         score = round(max(0.0, min(100.0, score)), 1)
-        if e.flow_status == "疑似派发" or score < 40:
+        if e.flow_status == "疑似派发" or score < float(score_cfg["capital_class_c_score_max_exclusive"]):
             capital_class = "资金C类"
-        elif score >= 70 and e.main_net > 0 and e.price_above_vwap:
+        elif score >= float(score_cfg["capital_class_a_score_min_inclusive"]) and e.main_net > 0 and e.price_above_vwap:
             capital_class = "资金A类"
         else:
             capital_class = "资金B类"
@@ -2214,7 +2412,10 @@ def rank_capital_candidates(
         # 板块内归一化弹性得分（兼顾 5分净额与 5分/成交额）
         norm_score = score
         if has_5m and e.amount > 0:
-            norm_score += min(10.0, (e.flow_5m_inc / e.amount) * 50.0)
+            norm_score += min(
+                float(score_cfg["normalized_flow_max_points"]),
+                (e.flow_5m_inc / e.amount) * float(score_cfg["normalized_flow_scale"]),
+            )
 
         ranked.append({
             **asdict(e),
@@ -2446,14 +2647,16 @@ def _predict_trigger_price(row: Dict[str, Any], missing: Optional[str]) -> Optio
     ma5 = row.get("ma5")
     ma10 = row.get("ma10")
     ma20 = row.get("ma20")
+    trigger_multiplier = float(SCREENING_CONFIG["strict_trend"]["preintersection_trigger_multiplier"])
     if missing == "当日涨幅" and is_number(prev_close) and prev_close > 0:
-        return round(prev_close * 1.03, 2)          # strict_trend 当日涨幅下限 3%
+        change_min = float(SCREENING_CONFIG["strict_trend"]["change_min_inclusive"])
+        return round(prev_close * (1 + change_min / 100), 2)
     if missing == "价格相对MA5" and is_number(ma5) and ma5 > 0:
-        return round(ma5 * 1.001, 2)
+        return round(ma5 * trigger_multiplier, 2)
     if missing == "价格相对MA10" and is_number(ma10) and ma10 > 0:
-        return round(ma10 * 1.001, 2)
+        return round(ma10 * trigger_multiplier, 2)
     if missing == "价格相对MA20" and is_number(ma20) and ma20 > 0:
-        return round(ma20 * 1.001, 2)
+        return round(ma20 * trigger_multiplier, 2)
     # 距60日高点 / 换手率 / 成交额 / 量能 / 5日涨幅 / MA20斜率 / 价格区间 / 流通市值：
     # 结构性条件，无法用单一触发价表达
     return None
@@ -2646,6 +2849,7 @@ def compute_pre_intersection(
     距60高/换手/成交/量能），不含价格区间与流通市值（已由超短池约束），避免错误
     排除哈药(~5.8)等低价强势股。候选行携带 preintersection_missing 与 trigger_price。
     """
+    strict_cfg = SCREENING_CONFIG["strict_trend"]
     out: List[Dict[str, Any]] = []
     for r in strict_ultra_rows:
         code = str(r.get("code"))
@@ -2656,12 +2860,32 @@ def compute_pre_intersection(
             ("价格相对MA10", is_number(r.get("ma10")) and r["price"] > r["ma10"]),
             ("价格相对MA20", is_number(r.get("ma20")) and r["price"] > r["ma20"]),
             ("MA20斜率", is_number(r.get("prev_ma20")) and r["ma20"] > r["prev_ma20"]),
-            ("当日涨幅", is_number(r.get("change")) and 3 <= r["change"] <= 6.5),
-            ("5日涨幅", is_number(r.get("five_ret")) and r["five_ret"] <= 0.20),
-            ("距60日高点", is_number(r.get("dist60")) and r["dist60"] <= 0.10),
-            ("换手率", is_number(r.get("turnover")) and 2 <= r["turnover"] <= 8),
-            ("成交额", is_number(r.get("amount")) and r["amount"] > 300_000_000),
-            ("量能相对5日", is_number(r.get("vol_vs_avg5")) and r["vol_vs_avg5"] <= 2),
+            (
+                "当日涨幅",
+                is_number(r.get("change"))
+                and float(strict_cfg["change_min_inclusive"]) <= r["change"] <= float(strict_cfg["change_max_inclusive"]),
+            ),
+            (
+                "5日涨幅",
+                is_number(r.get("five_ret")) and r["five_ret"] <= float(strict_cfg["five_ret_max_inclusive"]),
+            ),
+            (
+                "距60日高点",
+                is_number(r.get("dist60")) and r["dist60"] <= float(strict_cfg["dist60_max_inclusive"]),
+            ),
+            (
+                "换手率",
+                is_number(r.get("turnover"))
+                and float(strict_cfg["turnover_min_inclusive"]) <= r["turnover"] <= float(strict_cfg["turnover_max_inclusive"]),
+            ),
+            (
+                "成交额",
+                is_number(r.get("amount")) and r["amount"] > float(strict_cfg["amount_min_exclusive"]),
+            ),
+            (
+                "量能相对5日",
+                is_number(r.get("vol_vs_avg5")) and r["vol_vs_avg5"] <= float(strict_cfg["vol_vs_avg5_max_inclusive"]),
+            ),
         ]
         failures = [name for name, ok in checks if not ok]
         trend_missing_count = len(failures)
@@ -3390,24 +3614,42 @@ def evaluate_watchlist_breakout_states(
 
 def build_watchlist(items: List[Enriched], stats: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
     breakout_cfg = RULE_CONFIG["screening"]["breakout"]
+    cfg = SCREENING_CONFIG["watchlist"]
     rows = []
     for e in items:
-        if not (5 <= e.price <= 45 and 3_000_000_000 <= e.float_mv <= 25_000_000_000):
+        if not (
+            float(cfg["price_min_inclusive"]) <= e.price <= float(cfg["price_max_inclusive"])
+            and float(cfg["float_mv_min_inclusive"]) <= e.float_mv <= float(cfg["float_mv_max_inclusive"])
+        ):
             continue
-        if not (e.price >= e.ma10 or e.price >= 0.97 * e.ma10):
+        if not (e.price >= e.ma10 or e.price >= float(cfg["ma10_repair_min_multiplier"]) * e.ma10):
             continue
-        if e.five_ret > 0.12 or e.dist60 > 0.15:
+        if e.five_ret > float(cfg["five_ret_max_inclusive"]) or e.dist60 > float(cfg["dist60_max_inclusive"]):
             continue
         if not has_resonance(e, stats):
             continue
-        if e.change > 5.2 or e.turnover > 9:
+        if e.change > float(cfg["change_max_exclusive"]) or e.turnover > float(cfg["turnover_max_exclusive"]):
             continue
         trigger = max(e.prior_high, e.high)
-        buy_low = max(e.ma5 * 0.995, e.ma10 * 0.99)
-        buy_high = max(e.ma5 * 1.01, e.ma10 * 1.005)
-        invalid = min(e.ma10 * 0.985, e.prior_low * 0.99)
+        buy_low = max(
+            e.ma5 * float(cfg["buy_low_ma5_multiplier"]),
+            e.ma10 * float(cfg["buy_low_ma10_multiplier"]),
+        )
+        buy_high = max(
+            e.ma5 * float(cfg["buy_high_ma5_multiplier"]),
+            e.ma10 * float(cfg["buy_high_ma10_multiplier"]),
+        )
+        invalid = min(
+            e.ma10 * float(cfg["invalid_ma10_multiplier"]),
+            e.prior_low * float(cfg["invalid_prior_low_multiplier"]),
+        )
         structure = "趋势低吸" if e.price > e.ma5 > e.ma10 and e.ma10 >= e.ma20 else "突破前观察"
-        score = 100 - abs(e.change - 3.2) * 8 - max(0, e.five_ret * 100 - 8) * 2 - max(0, e.dist60 * 100 - 8)
+        score = (
+            100
+            - abs(e.change - float(cfg["score_change_target"])) * float(cfg["score_change_scale"])
+            - max(0, e.five_ret * 100 - float(cfg["score_five_ret_free_pct"])) * float(cfg["score_five_ret_scale"])
+            - max(0, e.dist60 * 100 - float(cfg["score_dist60_free_pct"])) * float(cfg["score_dist60_scale"])
+        )
         rows.append({
             "score": round(score, 1),
             "code": e.code,
@@ -3422,7 +3664,7 @@ def build_watchlist(items: List[Enriched], stats: Dict[str, Dict[str, Any]]) -> 
             "no_chase": f">{trigger * float(breakout_cfg['no_chase_multiplier']):.2f}不追",
             "reason": f"{e.industry}; 5日{e.five_ret*100:.1f}%; 距60高{e.dist60*100:.1f}%",
         })
-    return sorted(rows, key=lambda r: r["score"], reverse=True)[:10]
+    return sorted(rows, key=lambda r: r["score"], reverse=True)[: int(cfg["max_rows"])]
 
 
 def markdown_table(headers: List[str], rows: List[List[Any]]) -> str:
@@ -3754,7 +3996,7 @@ def main() -> int:
 
     latest_ts = max([r.get("f124") or 0 for r in market] or [0])
     ts = datetime.fromtimestamp(latest_ts, TZ) if latest_ts else datetime.now(TZ)
-    after_1420 = ts.hour > 14 or (ts.hour == 14 and ts.minute >= 20)
+    after_1420 = is_after_tail_risk(ts)
 
     strict_ultra_all = [] if fallback_snapshot else sorted([e for e in enriched if strict_ultra(e)], key=lambda e: e.change, reverse=True)
     strict_ultra_items = strict_ultra_all[:args.top]
@@ -3774,7 +4016,7 @@ def main() -> int:
                 continue  # 硬黑名单或高位派发降权，不进入低吸候选
             cls, tags, score = low_ultra_class(e, stats, after_1420)
             dom_type, dom_label = evaluate_dominance_type(e, flow_history)
-            if cls != "C" or (e.change >= 2.2 and (e.turnover > 10 or e.change > 5.2 or e.volume_ratio > 6)):
+            if low_ultra_output_eligible(e, cls):
                 low_ultra_rows.append({
                     **asdict(e),
                     "class": cls,
@@ -3786,7 +4028,7 @@ def main() -> int:
                     "super_lead": dom_label,
                 })
             cls2, tags2, score2 = low_trend_class(e, stats, after_1420)
-            if cls2 != "C" or (e.change >= 2.5 and (e.change > 6 or e.turnover > 9 or e.ma20_dist > 0.15)):
+            if low_trend_output_eligible(e, cls2):
                 low_trend_rows.append({
                     **asdict(e),
                     "class": cls2,
@@ -3797,8 +4039,8 @@ def main() -> int:
                     "dominance_label": dom_label,
                     "super_lead": dom_label,
                 })
-        low_ultra_rows = sorted(low_ultra_rows, key=lambda r: (class_order[r["class"]], -r["score"], abs(r["change"] - 3.4)))[: max(args.top, 15)]
-        low_trend_rows = sorted(low_trend_rows, key=lambda r: (class_order[r["class"]], -r["score"], abs(r["change"] - 3.8)))[: max(args.top, 15)]
+        low_ultra_rows = sorted(low_ultra_rows, key=low_ultra_sort_key)[: max(args.top, 15)]
+        low_trend_rows = sorted(low_trend_rows, key=low_trend_sort_key)[: max(args.top, 15)]
 
     strict_ultra_rows = [
         {**asdict(e), "resonance": "是" if has_resonance(e, stats) else "否"}

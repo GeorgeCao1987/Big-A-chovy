@@ -66,10 +66,12 @@ def check_config(config: Dict[str, Any] = RULE_CONFIG) -> Dict[str, List[Dict[st
         coalition = config["dominance"]["coalition"]
         execution = config["execution"]
         risk = config["risk"]
+        screening = config["screening"]
+        realtime = config["realtime"]
         shadow = config["shadow"]
         permissions = config["permissions"]
     except (KeyError, TypeError):
-        _add(result, "fail", "共享参数缺少 dominance/execution/risk/shadow/permissions 核心区段")
+        _add(result, "fail", "共享参数缺少 dominance/execution/risk/screening/realtime/shadow/permissions 核心区段")
         return result
 
     try:
@@ -150,6 +152,42 @@ def check_config(config: Dict[str, Any] = RULE_CONFIG) -> Dict[str, List[Dict[st
         _add(result, "pass", "公告风控状态、关键词、黑名单与低吸排除参数已集中登记")
     except (KeyError, TypeError, ValueError):
         _add(result, "fail", "风险策略参数类型或字段不完整")
+
+    try:
+        if not isinstance(screening, dict) or not isinstance(realtime, dict):
+            raise ValueError("screening/realtime must be objects")
+        required_screening = (
+            "low_absorb",
+            "breakout",
+            "sector_boost",
+            "flow",
+            "resonance",
+            "market_snapshot",
+            "strict_ultra",
+            "strict_trend",
+            "trend_observation",
+            "low_ultra",
+            "low_trend",
+            "low_open_wash",
+            "watchlist",
+            "capital_rank",
+        )
+        missing_screening = [key for key in required_screening if not isinstance(screening.get(key), dict)]
+        if missing_screening:
+            raise ValueError(f"missing screening sections: {','.join(missing_screening)}")
+        experimental = screening["low_absorb"]["experimental_retest_gate"]
+        if experimental.get("enabled") is not False or experimental.get("permission") != "simulated_only":
+            raise ValueError("experimental retest gate must remain disabled and simulated-only")
+        for key in ("market_thermometer", "cross_validation", "entry_exit"):
+            if not isinstance(realtime.get(key), dict):
+                raise ValueError(f"missing realtime section: {key}")
+        for section_name in ("strict_ultra", "strict_trend", "trend_observation", "low_ultra", "low_trend", "watchlist", "capital_rank"):
+            section = screening[section_name]
+            if not section or any(not _numeric(value) for value in section.values() if not isinstance(value, (dict, list))):
+                raise ValueError(f"{section_name} contains invalid numeric parameters")
+        _add(result, "pass", "筛选池、低吸评分、板块共振、资金排序与实时风控阈值已集中登记")
+    except (KeyError, TypeError, ValueError):
+        _add(result, "fail", "筛选或实时风控阈值区段类型、字段或实验权限不完整")
 
     if permissions.get("real_account_requires_complete_samples") is not True:
         _add(result, "fail", "真实仓权限门槛未设置为完整结算样本强制门禁")
@@ -354,6 +392,7 @@ def check_code_wiring(project_root: Path = PROJECT_ROOT) -> Dict[str, List[Dict[
     result = _empty_result()
     paths = (
         project_root / "daily-stock-analysis" / "scripts" / "a_share_daily_screen.py",
+        project_root / "daily-stock-analysis" / "scripts" / "realtime_engine.py",
         project_root / "tools" / "scan_reports.py",
         project_root / "tools" / "verify_t1.py",
         project_root / "tools" / "shadow_tracker.py",

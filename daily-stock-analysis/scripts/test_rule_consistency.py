@@ -47,6 +47,25 @@ class RuleConsistencyTests(unittest.TestCase):
         self.assertTrue(risk["announcement"]["hard_keywords"])
         self.assertIn("600664", risk["hard_blacklist"])
 
+    def test_screening_thresholds_have_one_shared_source_and_experiment_is_closed(self):
+        screening = RULE_CONFIG["screening"]
+        for section in (
+            "resonance",
+            "strict_ultra",
+            "strict_trend",
+            "trend_observation",
+            "low_ultra",
+            "low_trend",
+            "watchlist",
+            "capital_rank",
+        ):
+            self.assertIsInstance(screening[section], dict)
+        experiment = screening["low_absorb"]["experimental_retest_gate"]
+        self.assertFalse(experiment["enabled"])
+        self.assertEqual(experiment["permission"], "simulated_only")
+        self.assertEqual(screening["watchlist"]["score_dist60_scale"], 1.0)
+        self.assertEqual(RULE_CONFIG["realtime"]["entry_exit"]["take_profit_1_pct"], 3.0)
+
     def test_complete_shadow_result_requires_daily_kline_and_all_metrics(self):
         incomplete = {
             "checked": True,

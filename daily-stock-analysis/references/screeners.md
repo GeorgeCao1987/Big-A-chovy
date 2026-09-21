@@ -4,6 +4,8 @@
 >
 > 本文件只生成候选和风险标签。`A/B/C`、`strict/hopeful`、`buy zone` 等词均是筛选层描述，不代表可以买入、卖出、持仓或仓位许可；最终裁决由 `盘中` skill 按《选股框架.md》完成。
 
+机器执行阈值统一读取项目根目录的 `tools/rule_config.py`；本文件只解释筛选语义和边界，不另行维护一套可执行参数。调整阈值时先改共享配置，再同步《选股框架.md》参数总表并运行一致性检查。
+
 Use these specifications only after obtaining current, timestamped market data. Apply all conditions before sorting. Unless the user changes a threshold, boundary words are literal: “大于” and “小于” are strict; “在 A 至 B 之间” and “不超过” include their endpoints.
 
 ## Metric definitions
@@ -24,7 +26,7 @@ Use these specifications only after obtaining current, timestamped market data. 
 Use this when the user asks for ultra-short candidates that are still in a tradable low-absorption zone instead of the highest gainers. Filter the full A-share universe with all hard conditions before classification:
 
 - Code starts with `60` or `00`; exclude ChiNext, STAR Market, Beijing Stock Exchange, ST/*ST, delisting-risk names, suspended stocks, and stocks currently unavailable to buy at limit-up.
-- Live change: 2.2%-4.8% inclusive for buy candidates. 4.8%-5.2% may enter observation only. Above 5.2% is not a buy candidate.
+- Live change: 2.2%-4.6% inclusive for A candidates. 4.6%-5.2% may enter B/observation only. Above 5.2% is not a buy candidate.
 - Live turnover: 2.5%-8% inclusive for preferred buy candidates. Above 10% is excluded from buy candidates.
 - Live volume ratio: 1.2-3.8 inclusive. Above 6 is excluded from buy candidates.
 - Live amount: above CNY 300 million (3 亿元); prefer CNY 400 million-1.2 billion (4-12 亿元).
@@ -36,8 +38,8 @@ Apply anti-chase and risk tags:
 
 - If current price is close to the intraday high, do not prioritize it; tag `追高风险`.
 - If pullback from intraday high exceeds 1.5 percentage points, tag `冲高回落风险`.
-- If live change exceeds 5%, place it in observation only, never buy candidates.
-- If the scan runs after 14:00 and live change exceeds 4.8%, tag `尾盘追高风险` unless prior snapshots prove it was already active earlier.
+- If live change exceeds 5.2%, place it in observation only, never buy candidates.
+- If the scan runs after 14:20 and live change exceeds 4.8%, tag `尾盘追高风险` unless prior snapshots prove it was already active earlier.
 - If turnover exceeds 10% and amount is large while live change is below 3%, tag `巨量滞涨`; never recommend as buy.
 
 Classify and output:
