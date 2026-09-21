@@ -1,5 +1,8 @@
 # A 股量化筛选工作台
 
+[![Latest preview release](https://img.shields.io/github/v/release/LuQTest/Big-A-chovy?include_prereleases&label=latest%20preview&style=flat-square)](https://github.com/LuQTest/Big-A-chovy/releases)
+[![GitHub stars](https://img.shields.io/github/stars/LuQTest/Big-A-chovy?style=flat-square&label=stars)](https://github.com/LuQTest/Big-A-chovy/stargazers)
+
 这是一个面向 A 股盘中筛选、低吸候选、明日观察池和复盘分析的本地工具集。
 
 它负责查询行情、计算筛选条件、生成报告和维护观察状态；**不会自动下单**。筛选结果只是发现候选，买卖、仓位和止损仍应按照项目规则人工确认。
@@ -10,14 +13,16 @@
 
 - 历史版本：`v0.3.4`，保留原有版本标签。
 - 线上预览版：`v0.3.5-preview.1`，指向清理前的线上基线。
-- 当前开发预览版：`v0.5.0-preview.1`，新增跨平台 Web 工作台，并完成隐私隔离、Docker 启动和 Windows 浏览器使用路径；仍为预览版。
-- Docker 发布版：`v0.4.0-docker.2`，提供 `linux/amd64` 和 `linux/arm64` 容器镜像。
+- 当前开发预览版：[v0.5.0-preview.1](https://github.com/LuQTest/Big-A-chovy/releases/tag/v0.5.0-preview.1)，新增跨平台 Web 工作台，并完成隐私隔离、Docker 启动和 Windows 浏览器使用路径；仍为预览版。
+- Docker 发布版：[v0.4.0-docker.2](https://github.com/LuQTest/Big-A-chovy/releases/tag/v0.4.0-docker.2)，提供 `linux/amd64` 和 `linux/arm64` 容器镜像。
 
 完整更新记录见 [`CHANGELOG.md`](CHANGELOG.md)。
 
 ## GitHub Star History
 
-仓库 Star 趋势图会随 GitHub 数据自动更新，点击图表可查看详细历史：
+仓库的 Star 数量和趋势图会随 GitHub 数据自动更新。点击徽章可查看当前 Star 列表，点击趋势图可查看详细历史：
+
+[![GitHub stars](https://img.shields.io/github/stars/LuQTest/Big-A-chovy?style=social)](https://github.com/LuQTest/Big-A-chovy/stargazers)
 
 [![Star History Chart](https://api.star-history.com/svg?repos=LuQTest/Big-A-chovy&type=Date)](https://star-history.com/#LuQTest/Big-A-chovy&Date)
 
