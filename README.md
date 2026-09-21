@@ -15,6 +15,12 @@
 
 完整更新记录见 [`CHANGELOG.md`](CHANGELOG.md)。
 
+## GitHub Star History
+
+仓库 Star 趋势图会随 GitHub 数据自动更新，点击图表可查看详细历史：
+
+[![Star History Chart](https://api.star-history.com/svg?repos=LuQTest/Big-A-chovy&type=Date)](https://star-history.com/#LuQTest/Big-A-chovy&Date)
+
 ## 一、快速开始
 
 ### 环境要求
