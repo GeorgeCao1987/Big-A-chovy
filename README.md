@@ -11,6 +11,7 @@
 - 历史版本：`v0.3.4`，保留原有版本标签。
 - 线上预览版：`v0.3.5-preview.1`，指向清理前的线上基线。
 - 当前开发预览版：`v0.4.0-preview.1`，包含本次路径、隐私排除和跨用户运行兼容性收尾；盘中网络稳定性与策略效果仍在持续验证，暂不称为稳定版。
+- Docker 发布版：`v0.4.0-docker.1`，提供 `linux/amd64` 和 `linux/arm64` 容器镜像。
 
 完整更新记录见 [`CHANGELOG.md`](CHANGELOG.md)。
 
@@ -27,10 +28,40 @@
 脚本依赖尽量使用 Python 标准库，并对可选依赖提供了降级处理：
 
 ```bash
-python3 -m pip install requests pyyaml
+python3 -m pip install -r requirements.txt
 ```
 
 `requests` 用于更稳定地访问行情接口；`pyyaml` 用于读取决策记录中的持仓快照。没有这些库时，部分功能仍可使用，但网络或 YAML 解析能力可能降级。
+
+### Docker 部署（公开仓库）
+
+仓库提供一个不依赖 macOS GUI 的实时看板容器。源码、Docker 配置和 GitHub Actions 可以公开发布；报告、决策记录、持仓、影子样本和运行缓存仍保留在本机挂载目录，不会写入镜像。
+
+```bash
+cp .env.example .env       # 不需要代理时也可以跳过
+docker compose up -d --build
+```
+
+浏览器打开 <http://localhost:8765>，查看状态或日志：
+
+```bash
+docker compose ps
+docker compose logs -f dashboard
+docker compose down
+```
+
+容器默认尝试直连行情接口。如果宿主机需要代理，在 `.env` 中填写容器可访问的地址，例如 Docker Desktop 下：
+
+```dotenv
+HTTP_PROXY=http://host.docker.internal:7890
+HTTPS_PROXY=http://host.docker.internal:7890
+```
+
+Docker 运行版只启动实时看板，不启动 Finder、macOS `.command` 启动器或桌面 GUI；它同样不会自动下单。发布标签会由 GitHub Actions 构建并发布多架构镜像到 GitHub Container Registry；如果首次发布后镜像仍是私有的，需要在 GitHub Packages 中将其改为 Public。
+
+```bash
+docker pull ghcr.io/luqtest/big-a-chovy:v0.4.0-docker.1
+```
 
 ### 1. 启动普通筛选 GUI
 

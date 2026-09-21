@@ -1,0 +1,4 @@
+# Runtime dependencies for the command-line tools and real-time dashboard.
+# The screening engine itself primarily uses the Python standard library.
+requests>=2.31,<3
+PyYAML>=6,<7

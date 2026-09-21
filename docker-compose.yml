@@ -1,0 +1,36 @@
+services:
+  dashboard:
+    build:
+      context: .
+    ports:
+      - "${DASHBOARD_PORT:-8765}:8765"
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      PYTHONUNBUFFERED: "1"
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # These directories are intentionally local-only and are ignored by Git.
+      - ./筛选结果:/app/筛选结果
+      - ./决策记录:/app/决策记录
+      - ./tools/shadow_data:/app/tools/shadow_data
+      - dashboard_runtime:/app/runtime
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8765/api/status', timeout=4)
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+volumes:
+  dashboard_runtime:
