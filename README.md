@@ -10,8 +10,8 @@
 
 - 历史版本：`v0.3.4`，保留原有版本标签。
 - 线上预览版：`v0.3.5-preview.1`，指向清理前的线上基线。
-- 当前开发预览版：`v0.4.0-preview.1`，包含本次路径、隐私排除和跨用户运行兼容性收尾；盘中网络稳定性与策略效果仍在持续验证，暂不称为稳定版。
-- Docker 发布版：`v0.4.0-docker.1`，提供 `linux/amd64` 和 `linux/arm64` 容器镜像。
+- 当前开发预览版：`v0.5.0-preview.1`，新增跨平台 Web 工作台，并完成隐私隔离、Docker 启动和 Windows 浏览器使用路径；仍为预览版。
+- Docker 发布版：`v0.4.0-docker.2`，提供 `linux/amd64` 和 `linux/arm64` 容器镜像。
 
 完整更新记录见 [`CHANGELOG.md`](CHANGELOG.md)。
 
@@ -29,7 +29,7 @@
 - Python 3.10 或更高版本，建议使用 Python 3.13。
 - 能访问行情接口的网络环境。默认 `auto` 模式会实测直连、本机候选代理端口、环境代理和系统代理后择优；如直连受限，请在 `daily-stock-analysis/scripts/proxy_ports.json` 中配置可用的本机 HTTP 代理端口。代理软件不限定为 Clash。
 
-> 当前版本未做 Windows 适配。项目中的 `.command` 启动器、macOS `scutil` 代理检测、`open`/`osascript` 和部分进程管理命令均按 macOS 编写。Windows 用户可以自行尝试直接运行核心 Python 脚本，但 GUI、实时看板启动、代理检测和路径行为不保证正常，也暂不提供 Windows 专用安装或启动方案。
+> Tkinter GUI、`.command` 启动器和部分 macOS 代理/进程管理逻辑仍按 macOS 编写；Windows 用户请使用上方 Web 工作台。命令行核心脚本可直接尝试，但不代表完整桌面 GUI 已适配。
 
 脚本依赖尽量使用 Python 标准库，并对可选依赖提供了降级处理：
 
@@ -91,7 +91,7 @@ HTTPS_PROXY=http://host.docker.internal:7890
 Docker 运行版同时启动 Web 工作台和实时看板，不启动 Finder、macOS `.command` 启动器或桌面 GUI；宿主机端口默认只绑定 `127.0.0.1`，需要局域网访问时应明确修改 compose 端口映射并确认网络可信。它同样不会自动下单。发布标签会由 GitHub Actions 构建并发布多架构镜像到 GitHub Container Registry；如果首次发布后镜像仍是私有的，需要在 GitHub Packages 中将其改为 Public。
 
 ```bash
-docker pull ghcr.io/luqtest/big-a-chovy:v0.4.0-docker.1
+docker pull ghcr.io/luqtest/big-a-chovy:v0.4.0-docker.2
 ```
 
 ### 1. 启动普通筛选 GUI
