@@ -24,7 +24,13 @@
 
 [![GitHub stars](https://img.shields.io/github/stars/LuQTest/Big-A-chovy?style=social)](https://github.com/LuQTest/Big-A-chovy/stargazers)
 
-[![Star History Chart](https://api.star-history.com/svg?repos=LuQTest/Big-A-chovy&type=Date)](https://star-history.com/#LuQTest/Big-A-chovy&Date)
+<a href="https://www.star-history.com/?repos=LuQTest%2FBig-A-chovy&type=date&legend=top-left">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=LuQTest/Big-A-chovy&type=date&theme=dark&legend=top-left" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=LuQTest/Big-A-chovy&type=date&legend=top-left" />
+    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=LuQTest/Big-A-chovy&type=date&legend=top-left" />
+  </picture>
+</a>
 
 ## 一、快速开始
 
