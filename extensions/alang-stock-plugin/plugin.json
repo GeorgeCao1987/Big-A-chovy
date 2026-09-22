@@ -24,7 +24,10 @@
         "longDescription": "结合Big-A-chovy候选发现与阿狼的大盘→板块→个股→量价→条件策略流程，提供只读的A股市场研究数据和分析工作流。",
         "developerName": "GeorgeCao1987",
         "capabilities": ["Read"],
-        "websiteURL": "https://github.com/GeorgeCao1987/Big-A-chovy",
+        "websiteURL": "https://alang-stock-cloud-production.up.railway.app/",
+        "privacyPolicyURL": "https://alang-stock-cloud-production.up.railway.app/privacy",
+        "termsOfServiceURL": "https://alang-stock-cloud-production.up.railway.app/terms",
+        "supportURL": "https://alang-stock-cloud-production.up.railway.app/support",
         "defaultPrompt": "扫描当前A股市场、最强方向和主板候选，再按阿狼体系给出条件策略。"
       }
     }
