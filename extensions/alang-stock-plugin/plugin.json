@@ -1,0 +1,6 @@
+{
+  "name": "alang-stock",
+  "version": "0.1.0",
+  "description": "Use Big-A-chovy as an A-share discovery radar and apply the Alang market-sector-volume-price workflow for final analysis.",
+  "skills": "./skills/"
+}
