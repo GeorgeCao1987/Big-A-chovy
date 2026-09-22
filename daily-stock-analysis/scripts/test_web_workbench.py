@@ -112,6 +112,17 @@ class WorkbenchSecurityTests(unittest.TestCase):
             self.assertIsNone(self.workbench._resolve_report_path("/etc/passwd"))
             self.assertIsNone(self.workbench._resolve_report_path("筛选结果/../README.md"))
 
+    def test_console_decoder_handles_gbk_utf8_and_none(self):
+        self.assertEqual(self.workbench.decode_console_bytes("端口占用".encode("gbk")), "端口占用")
+        self.assertEqual(self.workbench.decode_console_bytes("端口占用".encode("utf-8")), "端口占用")
+        self.assertEqual(self.workbench.decode_console_bytes(None), "")
+
+    def test_windows_launcher_is_ascii_crlf(self):
+        data = (SCRIPT_DIR.parent.parent / "启动工作台.bat").read_bytes()
+        self.assertEqual(data.count(b"\r\n"), data.count(b"\n"))
+        self.assertNotIn(b"\n", data.replace(b"\r\n", b""))
+        self.assertTrue(all(byte < 128 for byte in data))
+
     def test_cross_origin_api_request_is_rejected_without_wildcard_cors(self):
         with tempfile.TemporaryDirectory(dir=self.workbench.PROJECT_ROOT) as tmp:
             reports = Path(tmp) / "筛选结果"

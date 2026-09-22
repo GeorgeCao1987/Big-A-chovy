@@ -984,8 +984,10 @@ const GROUP_MAP = {
   intersection: "short", ultra: "short", "trend-obs": "short", "trend-conf": "short",
   pre: "statemachine", triggered: "statemachine", late: "statemachine",
   capital: "capital", flow: "capital",
-  "low-ultra": "low", "low-trend": "low", watchlist: "low",
-  sectors: "sector",
+  "low-ultra": "low", "low-trend": "low", "low-open": "low", watchlist: "low",
+  // Keep both names valid: the group button uses `sector`, while the table
+  // data key is `sectors`.
+  sector: "sector", sectors: "sector",
   sticky: "sticky",
 };
 

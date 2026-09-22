@@ -382,6 +382,28 @@ def is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not math.isnan(value)
 
 
+def _flow_number(value: Any) -> float | int:
+    """Normalize optional Eastmoney capital-flow fields.
+
+    Eastmoney occasionally returns ``-``/``--`` instead of a number during
+    the first minutes after the open. Keep missing flow fail-closed as zero,
+    but never let the sentinel string leak into arithmetic.
+    """
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and math.isnan(value):
+            return 0
+        return value
+    if value in (None, "", "-", "--"):
+        return 0
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return 0
+    return 0 if math.isnan(parsed) else parsed
+
+
 def _fmt(value: Any, nd: int = 2, default: str = "—") -> str:
     """None/NaN-safe numeric formatter for markdown tables.
 
@@ -504,16 +526,16 @@ def normalize_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "float_mv": row.get("f21"),
         "industry": row.get("f100") or "-",
         "timestamp": row.get("f124") or 0,
-        "main_net": row.get("f62") or 0,
-        "main_pct": row.get("f184") or 0,
-        "super_net": row.get("f66") or 0,
-        "super_pct": row.get("f69") or 0,
-        "big_net": row.get("f72") or 0,
-        "big_pct": row.get("f75") or 0,
-        "mid_net": row.get("f78") or 0,
-        "mid_pct": row.get("f81") or 0,
-        "small_net": row.get("f84") or 0,
-        "small_pct": row.get("f87") or 0,
+        "main_net": _flow_number(row.get("f62")),
+        "main_pct": _flow_number(row.get("f184")),
+        "super_net": _flow_number(row.get("f66")),
+        "super_pct": _flow_number(row.get("f69")),
+        "big_net": _flow_number(row.get("f72")),
+        "big_pct": _flow_number(row.get("f75")),
+        "mid_net": _flow_number(row.get("f78")),
+        "mid_pct": _flow_number(row.get("f81")),
+        "small_net": _flow_number(row.get("f84")),
+        "small_pct": _flow_number(row.get("f87")),
     }
 
 

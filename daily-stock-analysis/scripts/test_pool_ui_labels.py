@@ -20,6 +20,15 @@ class PoolUiLabelTests(unittest.TestCase):
         self.assertNotIn("webbrowser", source)
         self.assertNotIn("open_html_preview", source)
 
+    def test_realtime_dashboard_tab_aliases_cover_low_open_and_sector_group(self):
+        app = (SCRIPT_DIR / "realtime_static" / "app.js").read_text(encoding="utf-8")
+        html = (SCRIPT_DIR / "realtime_static" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('"low-open": "low"', app)
+        self.assertIn('sector: "sector"', app)
+        self.assertIn('sectors: "sector"', app)
+        self.assertIn('data-tab="sectors"', html)
+
 
 
 if __name__ == "__main__":

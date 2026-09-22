@@ -1,18 +1,28 @@
 @echo off
-rem A股 Web 工作台启动器（Windows）
-rem 优先使用系统 Python；没有则回退到 uv（自动安装 Python 3.13 + 依赖）
+rem A-share web workbench launcher for Windows
+rem Use system Python when available; otherwise install/use uv.
 chcp 65001 >nul
 cd /d "%~dp0"
 
-where python >nul 2>nul && (
-    python daily-stock-analysis/scripts/web_workbench.py %*
-    goto :eof
-)
+where python >nul 2>nul
+if not errorlevel 1 goto :run_system_python
 
-where uv >nul 2>nul || (
-    echo [启动器] 未找到 Python 和 uv，正在安装 uv ...
-    powershell -NoProfile -ExecutionPolicy ByPass -Command "irm https://astral.sh/uv/install.ps1 | iex"
-    set "PATH=%USERPROFILE%\.local\bin;%PATH%"
-)
+where uv >nul 2>nul
+if not errorlevel 1 goto :run_uv
 
+echo [launcher] Python and uv were not found. Installing uv...
+powershell -NoProfile -ExecutionPolicy ByPass -Command "irm https://astral.sh/uv/install.ps1 | iex"
+if errorlevel 1 (
+    echo [launcher] Failed to install uv.
+    exit /b 1
+)
+set "PATH=%USERPROFILE%\.local\bin;%PATH%"
+goto :run_uv
+
+:run_system_python
+python daily-stock-analysis/scripts/web_workbench.py %*
+exit /b %errorlevel%
+
+:run_uv
 uv run --python 3.13 --with requests --with pyyaml --with tzdata python daily-stock-analysis/scripts/web_workbench.py %*
+exit /b %errorlevel%

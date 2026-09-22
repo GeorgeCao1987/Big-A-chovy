@@ -6,9 +6,11 @@ thread during trading hours, and serves a web dashboard for monitoring.
 
 No external dependencies — uses only Python standard library.
 Run: python3 realtime_dashboard.py  then open http://localhost:8765
+Use --no-browser to suppress automatic browser opening.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import os
@@ -861,11 +863,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
 def main() -> int:
     global _server
 
+    parser = argparse.ArgumentParser(description="A股实时筛选看板")
+    parser.add_argument("--no-browser", action="store_true", help="不自动打开浏览器")
+    args = parser.parse_args()
+
     # Auto-kill any stale process occupying the port
     import subprocess
+    had_stale_process = False
     try:
         stale = subprocess.run(["lsof", "-ti", f":{PORT}"], capture_output=True, text=True)
         if stale.stdout.strip():
+            had_stale_process = True
             for pid in stale.stdout.strip().split("\n"):
                 os.kill(int(pid), 9)
                 print(f"[dashboard] killed stale process {pid} on port {PORT}", file=sys.stderr)
@@ -886,10 +894,14 @@ def main() -> int:
     print("[dashboard] auto-shutdown at 15:15 on weekdays")
     print("[dashboard] press Ctrl+C to stop")
 
-    try:
-        webbrowser.open(url)
-    except Exception:
-        pass
+    # A previous dashboard process may have left a usable browser tab behind.
+    # Do not create another tab on every restart; callers can also suppress
+    # browser handling explicitly with --no-browser.
+    if not args.no_browser and not had_stale_process:
+        try:
+            webbrowser.open_new_tab(url)
+        except Exception:
+            pass
 
     try:
         _server.serve_forever()

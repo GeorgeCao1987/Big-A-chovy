@@ -2,6 +2,17 @@
 
 本文件记录源码、工具链和使用方式的主要变化。所有版本目前均为预览版，不代表稳定版或收益保证。
 
+## v0.5.0-preview.2 — 2026-09-22
+
+- 防止东财资金流字段在开盘早期返回 `-`/`--` 时把字符串带入算术，避免筛选引擎 `TypeError`。
+- 修复实时看板“低开洗盘”和“板块”标签映射，避免点击后清空高亮或进入未知标签页。
+- 加强 Windows 工作台兼容性：控制台输出按 GBK/UTF-8 安全解码，启动器改为 ASCII + CRLF，并将 `tzdata` 纳入依赖；实时看板重启时不重复打开浏览器标签。
+
+## v0.5.0-docker.1 — 2026-09-22
+
+- 与 `v0.5.0-preview.2` 使用同一源码，提供 `linux/amd64` 与 `linux/arm64` 多架构 Docker 镜像。
+- Docker 镜像由 GitHub Actions 构建并发布到 GitHub Container Registry。
+
 ## v0.5.0-preview.1 — 2026-09-21
 
 - 新增 B/S Web 工作台 `daily-stock-analysis/scripts/web_workbench.py`：单端口 8765 同时提供一次性筛选工作台、报告库、工具箱（行情/基本面/报告扫描/持仓/T+1 验证/单股跟踪）与原版实时看板；跨平台，Windows 可用（需 `tzdata` 包）。

@@ -13,8 +13,8 @@
 
 - 历史版本：`v0.3.4`，保留原有版本标签。
 - 线上预览版：`v0.3.5-preview.1`，指向清理前的线上基线。
-- 当前开发预览版：[v0.5.0-preview.1](https://github.com/LuQTest/Big-A-chovy/releases/tag/v0.5.0-preview.1)，新增跨平台 Web 工作台，并完成隐私隔离、Docker 启动和 Windows 浏览器使用路径；仍为预览版。
-- Docker 发布版：[v0.4.0-docker.2](https://github.com/LuQTest/Big-A-chovy/releases/tag/v0.4.0-docker.2)，提供 `linux/amd64` 和 `linux/arm64` 容器镜像。
+- 当前开发预览版：[v0.5.0-preview.2](https://github.com/LuQTest/Big-A-chovy/releases/tag/v0.5.0-preview.2)，修复资金流缺失值、实时看板标签和 Windows 启动链；仍为预览版。
+- Docker 发布版：[v0.5.0-docker.1](https://github.com/LuQTest/Big-A-chovy/releases/tag/v0.5.0-docker.1)，提供 `linux/amd64` 和 `linux/arm64` 容器镜像。
 
 完整更新记录见 [`CHANGELOG.md`](CHANGELOG.md)。
 
@@ -102,7 +102,7 @@ HTTPS_PROXY=http://host.docker.internal:7890
 Docker 运行版同时启动 Web 工作台和实时看板，不启动 Finder、macOS `.command` 启动器或桌面 GUI；宿主机端口默认只绑定 `127.0.0.1`，需要局域网访问时应明确修改 compose 端口映射并确认网络可信。它同样不会自动下单。发布标签会由 GitHub Actions 构建并发布多架构镜像到 GitHub Container Registry；如果首次发布后镜像仍是私有的，需要在 GitHub Packages 中将其改为 Public。
 
 ```bash
-docker pull ghcr.io/luqtest/big-a-chovy:v0.4.0-docker.2
+docker pull ghcr.io/luqtest/big-a-chovy:v0.5.0-docker.1
 ```
 
 ### 1. 启动普通筛选 GUI

@@ -86,13 +86,32 @@ def _ensure_utf8_stdio() -> None:
             pass
 
 
+def decode_console_bytes(data: bytes | str | None) -> str:
+    """Decode Windows console output without letting locale decoding abort startup.
+
+    Chinese Windows commonly emits GBK/CP936 for commands such as ``netstat``;
+    UTF-8 is kept as a fallback for newer terminals and localized environments.
+    """
+    if data is None:
+        return ""
+    if isinstance(data, str):
+        return data
+    for encoding in ("gbk", "utf-8", "utf-8-sig"):
+        try:
+            return data.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return data.decode("utf-8", errors="replace")
+
+
 def _kill_stale_port_windows(port: int) -> None:
     """Windows 下清理占用端口的残留进程（netstat + taskkill，尽力而为）。"""
     try:
-        out = subprocess.run(
+        completed = subprocess.run(
             ["netstat", "-ano", "-p", "TCP"],
-            capture_output=True, text=True, timeout=10,
-        ).stdout
+            capture_output=True, text=False, timeout=10,
+        )
+        out = decode_console_bytes(completed.stdout)
     except Exception:
         return
     pids: set[str] = set()
@@ -108,8 +127,12 @@ def _kill_stale_port_windows(port: int) -> None:
         if not pid.isdigit():
             continue
         try:
-            subprocess.run(["taskkill", "/F", "/PID", pid],
-                           capture_output=True, text=True, timeout=10)
+            subprocess.run(
+                ["taskkill", "/F", "/PID", pid],
+                capture_output=True,
+                text=False,
+                timeout=10,
+            )
             print(f"[workbench] killed stale process {pid} on port {port}", file=sys.stderr)
         except Exception:
             pass
