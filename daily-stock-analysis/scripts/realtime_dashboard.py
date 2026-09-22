@@ -219,10 +219,52 @@ TRADING_SESSIONS = [
     (12, 55, 15, 5),
 ]
 
+# 当日是否交易日：以上证指数日K是否出现当日记录为准（法定节假日/临时休市天然
+# 覆盖，无需每年维护日历）；接口失败保守视为交易日（宁可跑快照，不可漏跑）。
+_TRADING_DAY_CACHE = {"date": None, "value": True}
+_TRADING_DAY_LOCK = threading.Lock()
+
+
+def _fetch_index_kline_dates() -> list:
+    """拉上证指数最近几日K线日期（标准库直连，失败返回空列表）。"""
+    url = ("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+           "?param=sh000001,day,,,4,qfq")
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    try:
+        with urllib.request.urlopen(req, context=ssl._create_unverified_context(),
+                                    timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        node = data.get("data", {}).get("sh000001", {})
+        days = node.get("qfqday") or node.get("day") or []
+        return [d[0] for d in days]
+    except Exception:
+        return []
+
+
+def is_trading_day(now: datetime | None = None) -> bool:
+    """当日是否 A 股交易日。当日结果缓存；竞价时段(9:30 前)当日K可能未生成，
+    保守视为交易日。"""
+    now = now or datetime.now()
+    if now.weekday() >= 5:
+        return False
+    key = now.strftime("%Y-%m-%d")
+    with _TRADING_DAY_LOCK:
+        if _TRADING_DAY_CACHE["date"] == key:
+            return _TRADING_DAY_CACHE["value"]
+        dates = _fetch_index_kline_dates()
+        if dates:
+            value = (dates[-1] == key) or (now.hour * 60 + now.minute < 9 * 60 + 30)
+        else:
+            value = True  # 接口失败，退回「工作日即交易日」的原有行为
+        _TRADING_DAY_CACHE.update(date=key, value=value)
+        return value
+
 
 def is_trading_hours() -> bool:
     now = datetime.now()
     if now.weekday() >= 5:
+        return False
+    if not is_trading_day(now):
         return False
     current = now.hour * 60 + now.minute
     for h1, m1, h2, m2 in TRADING_SESSIONS:
@@ -468,6 +510,10 @@ class ScreeningScheduler:
     def _initial_run(self) -> None:
         """At startup: prewarm if cache is cold, then run screening."""
         time.sleep(1)
+        if not is_trading_day():
+            print("[dashboard] non-trading day (holiday?), skip initial screening",
+                  file=sys.stderr)
+            return
         # Check if cache needs prewarming
         from realtime_engine import get_cache_stats
         stats = get_cache_stats()
@@ -485,7 +531,7 @@ class ScreeningScheduler:
                 and now.weekday() < 5
                 and now.hour == 15 and now.minute >= 15
                 and not self.is_running
-                and self.latest_result is not None
+                and (self.latest_result is not None or not is_trading_day())
             ):
                 print("[dashboard] market closed, auto-shutting down...", file=sys.stderr)
                 self._archive_markdown()
