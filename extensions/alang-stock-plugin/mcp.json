@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "alang-stock-data": {
+      "type": "streamable-http",
+      "url": "https://alang-stock-cloud-production.up.railway.app/mcp"
+    }
+  }
+}
