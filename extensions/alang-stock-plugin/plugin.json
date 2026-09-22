@@ -1,6 +1,32 @@
 {
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "alang-stock",
-  "version": "0.1.0",
-  "description": "Use Big-A-chovy as an A-share discovery radar and apply the Alang market-sector-volume-price workflow for final analysis.",
-  "skills": "./skills/"
+  "version": "0.2.0",
+  "description": "A-share market data, Big-A-chovy candidate discovery, and the Alang market-sector-volume-price workflow for conditional trading analysis.",
+  "author": {
+    "name": "GeorgeCao1987",
+    "url": "https://github.com/GeorgeCao1987"
+  },
+  "homepage": "https://github.com/GeorgeCao1987/Big-A-chovy/tree/feature/alang-cloud-plugin-v2/extensions/alang-stock-plugin",
+  "repository": "https://github.com/GeorgeCao1987/Big-A-chovy",
+  "keywords": [
+    "A-shares",
+    "stock-analysis",
+    "market-data",
+    "Big-A-chovy",
+    "Alang"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "阿狼股票分析",
+        "shortDescription": "A股实时行情、板块扫描、候选发现与条件式交易分析。",
+        "longDescription": "结合Big-A-chovy候选发现与阿狼的大盘→板块→个股→量价→条件策略流程，提供只读的A股市场研究数据和分析工作流。",
+        "developerName": "GeorgeCao1987",
+        "capabilities": ["Read"],
+        "websiteURL": "https://github.com/GeorgeCao1987/Big-A-chovy",
+        "defaultPrompt": "扫描当前A股市场、最强方向和主板候选，再按阿狼体系给出条件策略。"
+      }
+    }
+  }
 }
