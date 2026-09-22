@@ -22,14 +22,12 @@
 
 仓库的 Star 数量和趋势图会随 GitHub 数据自动更新。点击徽章可查看当前 Star 列表，点击趋势图可查看详细历史：
 
-[![GitHub stars](https://img.shields.io/github/stars/LuQTest/Big-A-chovy?style=social)](https://github.com/LuQTest/Big-A-chovy/stargazers)
-
 <a href="https://www.star-history.com/?repos=LuQTest%2FBig-A-chovy&type=date&legend=top-left">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=LuQTest/Big-A-chovy&type=date&theme=dark&legend=top-left" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=LuQTest/Big-A-chovy&type=date&legend=top-left" />
-    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=LuQTest/Big-A-chovy&type=date&legend=top-left" />
-  </picture>
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=LuQTest/Big-A-chovy&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=LuQTest/Big-A-chovy&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=LuQTest/Big-A-chovy&type=date&legend=top-left" />
+ </picture>
 </a>
 
 ## 一、快速开始
