@@ -3,7 +3,7 @@
 """REST compatibility layer for the 阿狼 × Big-A-chovy cloud service.
 
 This module keeps the existing MCP endpoint untouched and adds plain read-only
-HTTP routes for clients that cannot register custom MCP servers.  All business
+HTTP routes for clients that cannot register custom MCP servers. All business
 logic is reused from ``server.py`` so MCP and REST return the same underlying
 data and screening evidence.
 """
@@ -11,17 +11,19 @@ from __future__ import annotations
 
 import asyncio
 import os
+from pathlib import Path
 from typing import Any, Callable
 
 import anyio
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import HTMLResponse, JSONResponse
 
 import server as core
 
 
 mcp = core.mcp
 _SCAN_LOCK = asyncio.Lock()
+LEGAL_DIR = Path(__file__).resolve().parent / "legal"
 
 
 def _bool_param(value: str | None, default: bool = True) -> bool:
@@ -40,6 +42,14 @@ def _error_response(exc: Exception, status_code: int = 500) -> JSONResponse:
         },
         status_code=status_code,
     )
+
+
+def _legal_page(filename: str) -> HTMLResponse:
+    path = LEGAL_DIR / filename
+    try:
+        return HTMLResponse(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return HTMLResponse("<h1>Page not found</h1>", status_code=404)
 
 
 async def _run_sync(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
@@ -61,9 +71,29 @@ async def root(request: Request) -> JSONResponse:
                 "scan": "/api/scan?mode=all&top=15&check_announcements=true",
                 "stock": "/api/stock/{code}?minute_limit=120",
             },
+            "legal": {
+                "privacy": "/privacy",
+                "terms": "/terms",
+                "support": "/support",
+            },
             "read_only": True,
         }
     )
+
+
+@mcp.custom_route("/privacy", methods=["GET"])
+async def privacy(request: Request) -> HTMLResponse:
+    return _legal_page("privacy.html")
+
+
+@mcp.custom_route("/terms", methods=["GET"])
+async def terms(request: Request) -> HTMLResponse:
+    return _legal_page("terms.html")
+
+
+@mcp.custom_route("/support", methods=["GET"])
+async def support(request: Request) -> HTMLResponse:
+    return _legal_page("support.html")
 
 
 @mcp.custom_route("/api/health", methods=["GET"])
@@ -75,6 +105,7 @@ async def api_health(request: Request) -> JSONResponse:
             "timestamp": core._now_text(),
             "mcp_path": "/mcp",
             "rest_enabled": True,
+            "legal_pages": ["/privacy", "/terms", "/support"],
         }
     )
 
@@ -115,7 +146,7 @@ async def api_scan(request: Request) -> JSONResponse:
             request.query_params.get("check_announcements"),
             default=True,
         )
-        # A full-market scan can take over a minute.  Serialize scans so two
+        # A full-market scan can take over a minute. Serialize scans so two
         # callers do not double memory/network pressure on the Railway replica.
         async with _SCAN_LOCK:
             data = await _run_sync(core.scan_candidates, mode, top, check_announcements)
