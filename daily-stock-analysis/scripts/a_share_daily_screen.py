@@ -1406,7 +1406,7 @@ def sector_stats(rows: List[Dict[str, Any]], breadth: Optional[Dict[str, Any]] =
         if (
             str(row.get("f12", "")).startswith(main_board_prefixes)
             and row.get("f3", 0) >= float(resonance_cfg["strong_change_min_inclusive"])
-            and row.get("f6", 0) >= float(resonance_cfg["strong_amount_min_inclusive"])
+            and is_number(row.get("f6")) and row.get("f6") >= float(resonance_cfg["strong_amount_min_inclusive"])
         ):
             stats[sec]["strong"] += 1
     quality = breadth or {}
