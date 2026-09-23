@@ -1,12 +1,12 @@
 import unittest
 from datetime import datetime
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import realtime_dashboard as dash
 
 
 def _reset_cache():
-    dash._TRADING_DAY_CACHE.update(date=None, value=True)
+    dash._TRADING_DAY_CACHE.update(date=None, value=True, source=None)
 
 
 class TradingDayTests(unittest.TestCase):
@@ -38,6 +38,34 @@ class TradingDayTests(unittest.TestCase):
         _reset_cache()
         # Before 09:30 the today kline may not exist yet on a real trading day.
         self.assertTrue(dash.is_trading_day(datetime(2026, 9, 22, 9, 20)))
+        self.assertEqual(dash._TRADING_DAY_CACHE["source"], "pending")
+
+    @patch.object(dash, "_fetch_index_kline_dates")
+    def test_pre_open_guess_is_rechecked_after_open(self, mock_fetch):
+        mock_fetch.return_value = ["2026-09-21"]
+        _reset_cache()
+        self.assertTrue(dash.is_trading_day(datetime(2026, 9, 22, 9, 20)))
+        self.assertFalse(dash.is_trading_day(datetime(2026, 9, 22, 10, 0)))
+        self.assertEqual(mock_fetch.call_count, 2)
+
+    @patch.object(dash, "_fetch_index_kline_dates", return_value=["2026-09-21"])
+    def test_is_trading_hours_defers_while_day_is_unconfirmed(self, _mock):
+        _reset_cache()
+        with patch("realtime_dashboard.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2026, 9, 22, 9, 20)
+            mock_dt.side_effect = lambda *a, **k: datetime(*a, **k)
+            self.assertFalse(dash.is_trading_hours())
+
+    def test_initial_run_defers_while_day_is_unconfirmed(self):
+        scheduler = object.__new__(dash.ScreeningScheduler)
+        scheduler.run_screening = Mock()
+        with (
+            patch.object(dash.time, "sleep"),
+            patch.object(dash, "is_trading_day", return_value=True),
+            patch.object(dash, "_trading_day_pending", return_value=True),
+        ):
+            dash.ScreeningScheduler._initial_run(scheduler)
+        scheduler.run_screening.assert_not_called()
 
     @patch.object(dash, "_fetch_index_kline_dates", return_value=[])
     def test_fetch_failure_falls_back_to_weekday_rule(self, _mock):
