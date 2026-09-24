@@ -1,0 +1,19 @@
+{
+  "commands": [
+    {
+      "name": "test",
+      "run": "python -m unittest discover -s daily-stock-analysis/scripts -p \"test_*.py\"",
+      "timeout": 300
+    },
+    {
+      "name": "consistency",
+      "run": "python tools/validate_consistency.py",
+      "timeout": 120
+    },
+    {
+      "name": "compile",
+      "run": "python -m compileall -q api tools daily-stock-analysis/scripts extensions/alang-stock-plugin",
+      "timeout": 120
+    }
+  ]
+}

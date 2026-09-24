@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: alang-stock-mcp
+    runtime: python
+    plan: free
+    branch: feature/alang-cloud-plugin-v2
+    buildCommand: pip install -r extensions/alang-stock-plugin/cloud/requirements.txt
+    startCommand: python extensions/alang-stock-plugin/cloud/server.py
+    autoDeployTrigger: commit
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
